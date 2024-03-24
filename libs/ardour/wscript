@@ -5,7 +5,7 @@ import os
 import re
 
 # default state file version for this build
-CURRENT_SESSION_FILE_VERSION = 7002
+CURRENT_SESSION_FILE_VERSION = 7003
 
 I18N_PACKAGE = 'ardour'
 
@@ -122,6 +122,7 @@ libardour_sources = [
         'lua_api.cc',
         'luaproc.cc',
         'luascripting.cc',
+        'lufs_meter.cc',
         'meter.cc',
         'midi_automation_list_binder.cc',
         'midi_buffer.cc',
@@ -248,6 +249,9 @@ libardour_sources = [
         'stripable.cc',
         # 'step_sequencer.cc',
         'strip_silence.cc',
+        'surround_pannable.cc',
+        'surround_return.cc',
+        'surround_send.cc',
         'system_exec.cc',
         'revision.cc',
         'rt_midibuffer.cc',
@@ -313,8 +317,6 @@ def configure(conf):
                       atleast_version='0.2.0', mandatory=True)
     autowaf.check_pkg(conf, 'lilv-0', uselib_store='LILV',
                       atleast_version='0.24.2', mandatory=True)
-    autowaf.check_pkg(conf, 'suil-0', uselib_store='SUIL',
-                      atleast_version='0.6.0', mandatory=False)
     conf.define ('LV2_SUPPORT', 1)
 
     # non-standard LV2 extention -- TODO: add option to disable??
@@ -423,7 +425,10 @@ def build(bld):
         obj.source += ['lv2_plugin.cc', 'lv2_evbuf.c', 'uri_map.cc']
         obj.uselib += ['LILV']
         if bld.is_defined('HAVE_SUIL'):
-            obj.uselib += ['SUIL']
+            if bld.is_defined('YTK'):
+                obj.use += [ 'libsuil' ]
+            else:
+                obj.uselib += ['SUIL']
 
     if bld.is_defined('WINDOWS_VST_SUPPORT'):
         obj.source += [ 'windows_vst_plugin.cc']

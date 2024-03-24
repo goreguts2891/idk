@@ -546,6 +546,10 @@ ARDOUR_UI::sfsm_response (StartupFSM::Result r)
 		queue_finish ();
 		break;
 
+	case StartupFSM::LoadedSession:
+		startup_done ();
+		break;
+
 	case StartupFSM::LoadSession:
 
 		if (load_session_from_startup_fsm () == 0) {
@@ -731,6 +735,8 @@ ARDOUR_UI::startup_done ()
 	_status_bar_visibility.update ();
 
 	BootMessage (string_compose (_("%1 is ready for use"), PROGRAM_NAME));
+
+	startup_fsm->set_complete ();
 }
 
 void

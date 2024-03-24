@@ -26,6 +26,7 @@
 #include "ardour/session.h"
 #include "ardour/solo_control.h"
 #include "ardour/solo_isolate_control.h"
+#include "ardour/well_known_enum.h"
 
 #include "launch_control_xl.h"
 
@@ -95,9 +96,6 @@ LaunchControlXL::build_maps ()
 		MAKE_DM_KNOB (SendB6, 34, 13, GreenFull, GreenLow, boost::function<void ()>
 				(boost::bind (&LaunchControlXL::dm_mb_comp, this, SendB6, CompMakeup)),
 				boost::bind(&LaunchControlXL::dm_mb_comp_enabled,this));
-		MAKE_DM_KNOB (SendB7, 35, 14, GreenFull, GreenLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_comp, this, SendB7, CompSpeed)),
-				boost::bind(&LaunchControlXL::dm_mb_comp_enabled, this));
 		MAKE_DM_KNOB (SendB8, 36, 15, GreenFull, GreenLow, boost::function<void ()>
 				(boost::bind (&LaunchControlXL::dm_mb_comp, this, SendB8, CompMode)),
 				boost::bind(&LaunchControlXL::dm_mb_comp_enabled, this));
@@ -108,8 +106,6 @@ LaunchControlXL::build_maps ()
 				(boost::bind (&LaunchControlXL::dm_mb_sends, this, static_cast<KnobID>(i + 16))),
 				boost::function<uint8_t ()> (boost::bind(&LaunchControlXL::dm_mb_check_send_knob, this, static_cast<KnobID>(i + 16))));
 		}
-
-#ifdef MIXBUS32C // from here 32C only
 
 		if (first_selected_stripable() && (first_selected_stripable()->is_master() || first_selected_stripable()->mixbus())) {
 			MAKE_DM_KNOB (SendA1, 13, 0, AmberFull, AmberLow, boost::function<void ()>
@@ -163,38 +159,6 @@ LaunchControlXL::build_maps ()
 			              (boost::bind (&LaunchControlXL::dm_pan_azi, this, SendB4)),
 			              boost::bind(&LaunchControlXL::dm_check_pan_azi, this));
 
-#else	// from here Mixbus Standard only
-		MAKE_DM_KNOB (SendA1, 13, 0, AmberFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendA1, true, 0)),
-				boost::function<uint8_t ()> (boost::bind(&LaunchControlXL::dm_mb_eq_gain_enabled, this, 0)));
-		MAKE_DM_KNOB (SendA2, 14, 1, AmberFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendA2, true, 1)),
-				boost::function<uint8_t ()> (boost::bind(&LaunchControlXL::dm_mb_eq_gain_enabled, this, 1)));
-		MAKE_DM_KNOB (SendA3, 15, 2, AmberFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendA3, true, 2)),
-				boost::function<uint8_t ()> (boost::bind(&LaunchControlXL::dm_mb_eq_gain_enabled, this, 2)));
-		MAKE_DM_KNOB (SendA5, 17, 4, RedLow, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_pan_azi, this, SendA5)),
-				boost::bind(&LaunchControlXL::dm_check_pan_azi, this));
-		MAKE_DM_KNOB (SendA6, 18, 5, RedLow, RedLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_pan_width, this, SendA6)),
-				boost::bind(&LaunchControlXL::dm_check_pan_width, this));
-		MAKE_DM_KNOB (SendA7, 19, 6, AmberLow, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_tapedrive, this, SendA7)),
-				boost::bind(&LaunchControlXL::dm_mb_has_tapedrive, this));
-		MAKE_DM_KNOB (SendB1, 29, 8, YellowFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendB1, false, 0)),
-				boost::bind(&LaunchControlXL::dm_mb_eq_freq_enabled, this));
-		MAKE_DM_KNOB (SendB2, 30, 9, YellowFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendB2, false, 1)),
-				boost::bind(&LaunchControlXL::dm_mb_eq_freq_enabled, this));
-		MAKE_DM_KNOB (SendB3, 31, 10, YellowFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_eq, this, SendB3, false, 2)),
-				boost::bind(&LaunchControlXL::dm_mb_eq_freq_enabled, this));
-		MAKE_DM_KNOB (SendB4, 32, 11, YellowFull, AmberLow, boost::function<void ()>
-				(boost::bind (&LaunchControlXL::dm_mb_flt_frq, this, SendB4, true)),
-				boost::bind(&LaunchControlXL::dm_mb_eq_freq_enabled, this));
-#endif
 #else // from here Ardour
 #endif
 	}
@@ -306,9 +270,6 @@ LaunchControlXL::build_maps ()
 			boost::bind (&LaunchControlXL::dm_solo_enabled, this));
 		MAKE_CTRL_BUTTON_PRESS(Control3, 75, 34, AmberFull, AmberLow, (boost::bind (&LaunchControlXL::dm_mb_eq_switch, this)),
 			boost::function<uint8_t()> (boost::bind(&LaunchControlXL::dm_mb_eq_gain_enabled, this, 0)));
-
-
-#ifdef MIXBUS32C // from here 32C only
 		MAKE_CTRL_BUTTON_PRESS(Control4, 76, 35, AmberFull, AmberLow,
 			boost::function<void()> (boost::bind (&LaunchControlXL::dm_mb_eq_shape_switch, this, 0)),
 			boost::function<uint8_t()> (boost::bind(&LaunchControlXL::dm_mb_eq_shape_enabled, this, 0 )));
@@ -321,16 +282,6 @@ LaunchControlXL::build_maps ()
 			boost::bind(&LaunchControlXL::dm_mb_master_assign_enabled, this));
 		MAKE_CTRL_BUTTON_PRESS(Control8, 92, 39, GreenFull, GreenLow, (boost::bind (&LaunchControlXL::dm_mb_comp_switch, this)),
 			boost::bind(&LaunchControlXL::dm_mb_comp_enabled, this));
-
-#else // from here Mixbus Standard only
-		MAKE_CTRL_BUTTON_PRESS(Control5, 89, 36, GreenFull, GreenLow, (boost::bind (&LaunchControlXL::dm_mb_master_assign_switch, this)),
-			boost::bind(&LaunchControlXL::dm_mb_master_assign_enabled, this));
-		MAKE_CTRL_BUTTON_PRESS(Control7, 91, 38, GreenFull, GreenLow, (boost::bind (&LaunchControlXL::dm_mb_comp_switch, this)),
-			boost::bind(&LaunchControlXL::dm_mb_comp_enabled, this));
-		MAKE_CTRL_BUTTON_PRESS(Control8, 92, 39, RedFull, RedLow, (boost::bind (&LaunchControlXL::dm_recenable_switch, this)),
-			boost::bind(&LaunchControlXL::dm_recenable_enabled, this));
-
-#endif
 #else // Ardour
 #endif
 	}
@@ -835,7 +786,7 @@ LaunchControlXL::knob_sendB(uint8_t n)
 
 	if (buttons_down.find(Device) != buttons_down.end()) { // Device button hold
 	#ifdef MIXBUS
-		ac = stripable[n]->filter_freq_controllable (true);
+		ac = stripable[n]->mapped_control (HPF_Freq);
 	#else
 		/* something */
 	#endif
@@ -870,7 +821,7 @@ LaunchControlXL::knob_pan(uint8_t n)
 
 	if (buttons_down.find(Device) != buttons_down.end()) { // Device button hold
 #ifdef MIXBUS
-		ac = stripable[n]->comp_threshold_controllable();
+		ac = stripable[n]->mapped_control (Comp_Threshold);
 #else
 		ac = stripable[n]->pan_width_control();
 #endif
@@ -1325,8 +1276,8 @@ LaunchControlXL::dm_mb_eq_freq_enabled()
 
 	uint8_t dev_status = dev_nonexistant;
 
-	if (first_selected_stripable()->eq_enable_controllable()) {
-		if (first_selected_stripable()->eq_enable_controllable()->get_value()) {
+	if (first_selected_stripable()->mapped_control(EQ_Enable)) {
+		if (first_selected_stripable()->mapped_control(EQ_Enable)->get_value()) {
 			dev_status = dev_active;
 		} else {
 			dev_status = dev_inactive;
@@ -1350,8 +1301,8 @@ LaunchControlXL::dm_mb_eq_gain_enabled(uint8_t band)
 
 	uint8_t dev_status = dev_nonexistant;
 
-	if (first_selected_stripable()->eq_enable_controllable()) {
-		if (first_selected_stripable()->eq_enable_controllable()->get_value()) {
+	if (first_selected_stripable()->mapped_control(EQ_Enable)) {
+		if (first_selected_stripable()->mapped_control(EQ_Enable)->get_value()) {
 			dev_status = dev_active;
 		} else {
 			dev_status = dev_inactive;
@@ -1375,9 +1326,9 @@ LaunchControlXL::dm_mb_eq (KnobID k, bool gain, uint8_t band)
 	std::shared_ptr<AutomationControl> ac;
 	std::shared_ptr<Knob> knob = knob_by_id (k);
 	if (gain) {
-		ac = first_selected_stripable()->eq_gain_controllable(band);
+		ac = first_selected_stripable()->mapped_control(EQ_BandGain, band);
 	} else {
-		ac = first_selected_stripable()->eq_freq_controllable(band);
+		ac = first_selected_stripable()->mapped_control (EQ_BandFreq, band);
 	}
 
 	if (ac && check_pick_up(knob, ac)) {
@@ -1392,9 +1343,9 @@ LaunchControlXL::dm_mb_eq_shape_switch (uint8_t band)
 		return;
 	}
 
-	if (first_selected_stripable()->eq_shape_controllable(band)) {
-	first_selected_stripable()->eq_shape_controllable(band)->set_value
-			(!first_selected_stripable()->eq_shape_controllable(band)->get_value(), PBD::Controllable::NoGroup );
+	if (first_selected_stripable()->mapped_control (EQ_BandShape, band)) {
+	first_selected_stripable()->mapped_control (EQ_BandShape, band)->set_value
+			(!first_selected_stripable()->mapped_control (EQ_BandShape, band)->get_value(), PBD::Controllable::NoGroup );
 	}
 }
 
@@ -1408,8 +1359,8 @@ LaunchControlXL::dm_mb_eq_shape_enabled(uint8_t band)
 
 	uint8_t dev_status = dev_nonexistant;
 
-	if (first_selected_stripable()->eq_shape_controllable(band)) {
-		if (first_selected_stripable()->eq_shape_controllable(band)->get_value()) {
+	if (first_selected_stripable()->mapped_control (EQ_BandShape, band)) {
+		if (first_selected_stripable()->mapped_control (EQ_BandShape, band)->get_value()) {
 			dev_status = dev_active;
 		} else {
 			dev_status = dev_inactive;
@@ -1427,9 +1378,9 @@ LaunchControlXL::dm_mb_eq_switch()
 		return;
 	}
 
-	if (first_selected_stripable()->eq_enable_controllable()) {
-		first_selected_stripable()->eq_enable_controllable()->set_value
-			(!first_selected_stripable()->eq_enable_controllable()->get_value(), PBD::Controllable::NoGroup );
+	if (first_selected_stripable()->mapped_control(EQ_Enable)) {
+		first_selected_stripable()->mapped_control(EQ_Enable)->set_value
+			(!first_selected_stripable()->mapped_control(EQ_Enable)->get_value(), PBD::Controllable::NoGroup );
 	}
 }
 
@@ -1443,9 +1394,9 @@ LaunchControlXL::dm_mb_flt_enabled()
 	DEBUG_TRACE (DEBUG::LaunchControlXL, "dm_mb_flt_enabled()\n");
 	uint8_t dev_status = dev_nonexistant;
 
-	if (first_selected_stripable()->filter_enable_controllable(true)) {
+	if (first_selected_stripable()->mapped_control (HPF_Enable)) {
 		DEBUG_TRACE (DEBUG::LaunchControlXL, "dm_mb_flt_enabled() - filter exists\n");
-		if (first_selected_stripable()->filter_enable_controllable(true)->get_value()) {
+		if (first_selected_stripable()->mapped_control (HPF_Enable)->get_value()) {
 			DEBUG_TRACE (DEBUG::LaunchControlXL, "dm_mb_flt_enabled: get_value true\n");
 			dev_status = dev_active;
 		} else {
@@ -1464,9 +1415,9 @@ LaunchControlXL::dm_mb_flt_switch()
 		return;
 	}
 
-	if (first_selected_stripable()->filter_enable_controllable(true)) {
-		first_selected_stripable()->filter_enable_controllable(true)->set_value
-			(!first_selected_stripable()->filter_enable_controllable(true)->get_value(), PBD::Controllable::NoGroup );
+	if (first_selected_stripable()->mapped_control (HPF_Enable)) {
+		first_selected_stripable()->mapped_control (HPF_Enable)->set_value
+			(!first_selected_stripable()->mapped_control (HPF_Enable)->get_value(), PBD::Controllable::NoGroup );
 	}
 }
 
@@ -1482,9 +1433,9 @@ LaunchControlXL::dm_mb_flt_frq (KnobID k, bool hpf)
 	std::shared_ptr<AutomationControl> ac;
 	std::shared_ptr<Knob> knob = knob_by_id (k);
 	if (hpf) {
-		ac = first_selected_stripable()->filter_freq_controllable(true);
+		ac = first_selected_stripable()->mapped_control (HPF_Freq);
 	} else {
-		ac = first_selected_stripable()->filter_freq_controllable(false);
+		ac = first_selected_stripable()->mapped_control (LPF_Freq);
 	}
 
 	if (ac && check_pick_up(knob, ac)) {
@@ -1571,8 +1522,8 @@ LaunchControlXL::dm_mb_comp_enabled()
 	}
 
 	uint8_t dev_status = dev_nonexistant;
-	if (first_selected_stripable()->comp_enable_controllable()) {
-		if (first_selected_stripable()->comp_enable_controllable()->get_value()) {
+	if (first_selected_stripable()->mapped_control (Comp_Enable)) {
+		if (first_selected_stripable()->mapped_control (Comp_Enable)->get_value()) {
 			dev_status = dev_active;
 		} else {
 			dev_status = dev_inactive;
@@ -1590,11 +1541,11 @@ LaunchControlXL::dm_mb_comp_switch()
 		return;
 	}
 
-	if (first_selected_stripable()->comp_enable_controllable()) {
+	if (first_selected_stripable()->mapped_control (Comp_Enable)) {
 		DEBUG_TRACE (DEBUG::LaunchControlXL, "comp_enable_controllable exists\n");
-		DEBUG_TRACE (DEBUG::LaunchControlXL, string_compose("comp_enable_controllable(): '%1'\n", first_selected_stripable()->comp_enable_controllable()->get_value() ));
-		first_selected_stripable()->comp_enable_controllable()->set_value
-			(!first_selected_stripable()->comp_enable_controllable()->get_value(), PBD::Controllable::NoGroup);
+		DEBUG_TRACE (DEBUG::LaunchControlXL, string_compose("mapped_control (Comp_Enable): '%1'\n", first_selected_stripable()->mapped_control (Comp_Enable)->get_value() ));
+		first_selected_stripable()->mapped_control (Comp_Enable)->set_value
+			(!first_selected_stripable()->mapped_control (Comp_Enable)->get_value(), PBD::Controllable::NoGroup);
 	}
 
 }
@@ -1611,13 +1562,10 @@ LaunchControlXL::dm_mb_comp (KnobID k, CompParam c)
 
 	switch (c) {
 		case (CompMakeup):
-			ac = first_selected_stripable()->comp_makeup_controllable();
+			ac = first_selected_stripable()->mapped_control (Comp_Makeup);
 			break;
 		case (CompMode):
-			ac = first_selected_stripable()->comp_mode_controllable();
-			break;
-		case (CompSpeed):
-			ac = first_selected_stripable()->comp_speed_controllable();
+			ac = first_selected_stripable()->mapped_control (Comp_Mode);
 			break;
 	}
 
@@ -1642,7 +1590,7 @@ LaunchControlXL::dm_mb_comp_thresh (FaderID id) {
 		fader = f->second;
 	}
 
-	ac = first_selected_stripable()->comp_threshold_controllable();
+	ac = first_selected_stripable()->mapped_control (Comp_Threshold);
 	if (ac && check_pick_up(fader, ac)) {
 		ac->set_value ( ac->interface_to_internal( fader->value() / 127.0), PBD::Controllable::UseGroup );
 	}
@@ -1674,7 +1622,7 @@ LaunchControlXL::dm_mb_tapedrive (KnobID k)
 	std::shared_ptr<AutomationControl> ac;
 	std::shared_ptr<Knob> knob = knob_by_id (k);
 
-	ac = first_selected_stripable()->tape_drive_controllable();
+	ac = first_selected_stripable()->mapped_control (TapeDrive_Drive);
 
 	if (ac && check_pick_up(knob, ac)) {
 		ac->set_value ( ac->interface_to_internal( knob->value() / 127.0), PBD::Controllable::UseGroup );

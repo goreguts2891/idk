@@ -130,6 +130,7 @@ ArdourButton::ArdourButton (const std::string& str, Element e, bool toggle)
 	, led_inactive_color(0)
 	, led_custom_color (0)
 	, use_custom_led_color (false)
+	, outline_color (0)
 	, convex_pattern (0)
 	, concave_pattern (0)
 	, led_inset_pattern (0)
@@ -320,7 +321,7 @@ ArdourButton::render (Cairo::RefPtr<Cairo::Context> const& ctx, cairo_rectangle_
 	// draw edge (filling a rect underneath, rather than stroking a border on top, allows the corners to be lighter-weight.
 	if ((_elements & (Body|Edge)) == (Body|Edge)) {
 		rounded_function (cr, 0, 0, get_width(), get_height(), corner_radius + 1.5);
-		cairo_set_source_rgba (cr, 0, 0, 0, 1);
+		Gtkmm2ext::set_source_rgba (cr, outline_color);
 		cairo_fill(cr);
 	}
 
@@ -782,12 +783,17 @@ ArdourButton::set_colors ()
 {
 	_update_colors = false;
 
+	std::string name = get_name();
+	bool failed = false;
+
+	outline_color = UIConfigurationBase::instance().color (string_compose ("%1: outline", name), &failed);
+	if (failed) {
+		outline_color = UIConfigurationBase::instance().color ("generic button: outline");
+	}
+
 	if (_fixed_colors_set == 0x3) {
 		return;
 	}
-
-	std::string name = get_name();
-	bool failed = false;
 
 	if (!(_fixed_colors_set & 0x1)) {
 		fill_active_color = UIConfigurationBase::instance().color (string_compose ("%1: fill active", name), &failed);

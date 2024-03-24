@@ -105,6 +105,9 @@ public:
 	int set_state (const XMLNode&, int);
 	XMLNode& get_state () const;
 
+	bool visible() const;
+	bool fully_visible() const;
+
 private:
 	ProcessorBox* _processor_box;
 	std::weak_ptr<ARDOUR::Processor> _processor;
@@ -447,7 +450,6 @@ public:
 	void hide_things ();
 
 	bool edit_aux_send (std::shared_ptr<ARDOUR::Processor>);
-	bool edit_triggerbox (std::shared_ptr<ARDOUR::Processor>);
 
 	/* Everything except a WindowProxy object should use this to get the window */
 	Gtk::Window* get_processor_ui (std::shared_ptr<ARDOUR::Processor>) const;
@@ -581,6 +583,7 @@ private:
 	bool can_cut() const;
 	bool stub_processor_selected() const;
 	bool channelstrip_selected() const;
+	bool surrsend_selected() const;
 
 	static Glib::RefPtr<Gtk::Action> cut_action;
 	static Glib::RefPtr<Gtk::Action> copy_action;

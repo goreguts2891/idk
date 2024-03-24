@@ -65,6 +65,8 @@ DiskReader::DiskReader (Session& s, Track& t, string const& str, Temporal::TimeD
 	, _declick_offs (0)
 	, _declick_enabled (false)
 	, last_refill_loop_start (0)
+	, _midi_catchup (false)
+	, _need_midi_catchup (false)
 {
 	file_sample[DataType::AUDIO] = 0;
 	file_sample[DataType::MIDI]  = 0;
@@ -708,6 +710,7 @@ DiskReader::overwrite_existing_audio ()
 		chunk2_cnt = to_overwrite - chunk1_cnt;
 	}
 
+	boost::scoped_array<Sample> sum_buffer (new Sample[to_overwrite]);
 	boost::scoped_array<Sample> mixdown_buffer (new Sample[to_overwrite]);
 	boost::scoped_array<float>  gain_buffer (new float[to_overwrite]);
 	uint32_t                    n   = 0;
@@ -725,19 +728,21 @@ DiskReader::overwrite_existing_audio ()
 		start = overwrite_sample;
 
 		if (chunk1_cnt) {
-			if (audio_read (buf + chunk1_offset, mixdown_buffer.get (), gain_buffer.get (), start, chunk1_cnt, rci, n, reversed) != (samplecnt_t)chunk1_cnt) {
+			if (audio_read (sum_buffer.get (), mixdown_buffer.get (), gain_buffer.get (), start, chunk1_cnt, rci, n, reversed) != (samplecnt_t)chunk1_cnt) {
 				error << string_compose (_("DiskReader %1: when overwriting(1), cannot read %2 from playlist at sample %3"), id (), chunk1_cnt, overwrite_sample) << endmsg;
 				ret = false;
 				++n;
 				continue;
 			}
+			memcpy (buf + chunk1_offset, sum_buffer.get (), sizeof (float) * chunk1_cnt);
 		}
 
 		if (chunk2_cnt) {
-			if (audio_read (buf, mixdown_buffer.get (), gain_buffer.get (), start, chunk2_cnt, rci, n, reversed) != (samplecnt_t)chunk2_cnt) {
+			if (audio_read (sum_buffer.get (), mixdown_buffer.get (), gain_buffer.get (), start, chunk2_cnt, rci, n, reversed) != (samplecnt_t)chunk2_cnt) {
 				error << string_compose (_("DiskReader %1: when overwriting(2), cannot read %2 from playlist at sample %3"), id (), chunk2_cnt, overwrite_sample) << endmsg;
 				ret = false;
 			}
+			memcpy (buf, sum_buffer.get (), sizeof (float) * chunk2_cnt);
 		}
 
 		if (!rci->initialized) {
@@ -1484,6 +1489,14 @@ DiskReader::get_midi_playback (MidiBuffer& dst, samplepos_t start_sample, sample
 				effective_end   = min (effective_start + cnt, loop_end);
 				assert (effective_end > effective_start);
 
+
+				if (_midi_catchup && _need_midi_catchup) {
+					MidiStateTracker mst;
+					rtmb->track (mst, effective_start, effective_end);
+					mst.flush (dst, 0, false);
+					_need_midi_catchup = false;
+				}
+
 				const samplecnt_t this_read = effective_end - effective_start;
 
 				DEBUG_TRACE (DEBUG::MidiDiskIO, string_compose ("playback buffer LOOP read, from %1 to %2 (%3)\n", effective_start, effective_end, this_read));
@@ -1491,7 +1504,7 @@ DiskReader::get_midi_playback (MidiBuffer& dst, samplepos_t start_sample, sample
 #ifndef NDEBUG
 				size_t events_read =
 #endif
-				    rtmb->read (*target, effective_start, effective_end, _tracker, offset);
+					rtmb->read (*target, effective_start, effective_end, _tracker, offset);
 
 				cnt -= this_read;
 				effective_start += this_read;
@@ -1511,6 +1524,12 @@ DiskReader::get_midi_playback (MidiBuffer& dst, samplepos_t start_sample, sample
 
 		} else {
 			DEBUG_TRACE (DEBUG::MidiDiskIO, string_compose ("playback buffer read, from %1 to %2 (%3)\n", start_sample, end_sample, nframes));
+			if (_midi_catchup && _need_midi_catchup) {
+				MidiStateTracker mst;
+				rtmb->track (mst, start_sample, end_sample);
+				mst.flush (dst, 0, false);
+				_need_midi_catchup = false;
+			}
 			DEBUG_RESULT (size_t, events_read, rtmb->read (*target, start_sample, end_sample, _tracker));
 			DEBUG_TRACE (DEBUG::MidiDiskIO, string_compose ("%1 MDS events read %2 range %3 .. %4\n", _name, events_read, playback_sample, playback_sample + nframes));
 		}
@@ -1956,4 +1975,10 @@ DiskReader::setup_preloop_buffer ()
 		}
 		++channel;
 	}
+}
+
+void
+DiskReader::set_need_midi_catchup (bool yn)
+{
+	_need_midi_catchup = yn;
 }

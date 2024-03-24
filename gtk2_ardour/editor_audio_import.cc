@@ -285,15 +285,13 @@ Editor::import_smf_tempo_map (Evoral::SMF const & smf, timepos_t const & pos)
 		return;
 	}
 
-	TempoMapChange tmc (*this, _("import SMF tempo map"));
-
 	/* cannot create an empty TempoMap, so create one with "default" single
 	   values for tempo and meter, then overwrite them.
 	*/
 
 	TempoMap::WritableSharedPtr new_map (new TempoMap (Tempo (120, 4), Meter (4, 4)));
 
-	Meter last_meter (4.0, 4.0);
+	Meter last_meter (4, 4);
 	bool have_initial_meter = false;
 
 	for (size_t n = 0; n < num_tempos; ++n) {
@@ -302,13 +300,7 @@ Editor::import_smf_tempo_map (Evoral::SMF const & smf, timepos_t const & pos)
 		assert (t);
 
 		Tempo tempo (t->tempo(), 32.0 / (double) t->notes_per_note);
-
-		cerr << "new tempo from SMF : " << tempo << endl;
-
 		Meter meter (t->numerator, t->denominator);
-
-		cerr << "new meter from SMF : " << meter << endl;
-
 
 		Temporal::BBT_Argument bbt; /* 1|1|0 which is correct for the no-meter case */
 
@@ -330,7 +322,22 @@ Editor::import_smf_tempo_map (Evoral::SMF const & smf, timepos_t const & pos)
 		last_meter = meter;
 	}
 
-	tmc.use_new_map (new_map);
+	TempoMap::WritableSharedPtr wmap = TempoMap::write_copy ();
+	TempoMapCutBuffer* tmcb;
+	// XMLNode& tm_before (wmap->get_state());
+
+	tmcb = new_map->copy (timepos_t (0), timepos_t::max (Temporal::AudioTime));
+
+	if (tmcb && !tmcb->empty()) {
+		wmap->paste (*tmcb, pos, false, _("import"));
+		TempoMap::update (wmap);
+		delete tmcb;
+		// XMLNode& tm_after (wmap->get_state());
+		// _session->add_command (new TempoCommand (_("cut tempo map"), &tm_before, &tm_after));
+	} else {
+		// delete &tm_before;
+		TempoMap::abort_update ();
+	}
 }
 
 void
@@ -998,6 +1005,13 @@ Editor::add_sources (vector<string>            paths,
 			}
 		}
 
+		if (track_names.size() > 2 && current_interthread_info) {
+			import_status.current = n;
+			import_status.total = track_names.size ();
+			import_status.progress = 0.5;
+			import_status.doing_what = "Creating Tracks";
+			ARDOUR::GUIIdle ();
+		}
 		finish_bringing_in_material (*r, input_chan, output_chan, pos, mode, track, track_names[n], pgroup_id, instrument);
 
 		rlen = (*r)->length();

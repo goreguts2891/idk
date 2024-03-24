@@ -90,6 +90,7 @@
 #include "mixer_group_tabs.h"
 #include "plugin_utils.h"
 #include "route_sorter.h"
+#include "surround_strip.h"
 #include "timers.h"
 #include "ui_config.h"
 #include "vca_master_strip.h"
@@ -131,6 +132,7 @@ Mixer_UI::Mixer_UI ()
 	, in_group_row_change (false)
 	, track_menu (0)
 	, _plugin_selector (0)
+	, _surround_strip (0)
 	, foldback_strip (0)
 	, _show_foldback_strip (true)
 	, _strip_width (UIConfiguration::instance().get_default_narrow_ms() ? Narrow : Wide)
@@ -348,13 +350,12 @@ Mixer_UI::Mixer_UI ()
 
 	vca_scroller_base.add_events (Gdk::BUTTON_PRESS_MASK|Gdk::BUTTON_RELEASE_MASK);
 	vca_scroller_base.set_name (X_("MixerWindow"));
-	vca_scroller_base.signal_button_release_event().connect (sigc::mem_fun(*this, &Mixer_UI::masters_scroller_button_release), false);
+	vca_scroller_base.signal_button_press_event().connect (sigc::mem_fun(*this, &Mixer_UI::strip_scroller_button_event));
+	vca_scroller_base.signal_button_release_event().connect (sigc::mem_fun(*this, &Mixer_UI::strip_scroller_button_event));
 
 	vca_hpacker.signal_scroll_event().connect (sigc::mem_fun (*this, &Mixer_UI::on_vca_scroll_event), false);
 	vca_scroller.add (vca_hpacker);
 	vca_scroller.set_policy (Gtk::POLICY_ALWAYS, Gtk::POLICY_AUTOMATIC);
-	vca_scroller.signal_button_press_event().connect (sigc::mem_fun(*this, &Mixer_UI::strip_scroller_button_event));
-	vca_scroller.signal_button_release_event().connect (sigc::mem_fun(*this, &Mixer_UI::strip_scroller_button_event));
 
 	vca_vpacker.pack_start (vca_scroller, true, true);
 
@@ -421,6 +422,7 @@ Mixer_UI::Mixer_UI ()
 	MixerStrip::CatchDeletion.connect (*this, invalidator (*this), boost::bind (&Mixer_UI::remove_strip, this, _1), gui_context());
 	VCAMasterStrip::CatchDeletion.connect (*this, invalidator (*this), boost::bind (&Mixer_UI::remove_master, this, _1), gui_context());
 	FoldbackStrip::CatchDeletion.connect (*this, invalidator (*this), boost::bind (&Mixer_UI::remove_foldback, this, _1), gui_context());
+	SurroundStrip::CatchDeletion.connect (*this, invalidator (*this), boost::bind (&Mixer_UI::remove_surround_master, this, _1), gui_context());
 
 	/* handle escape */
 
@@ -443,6 +445,7 @@ Mixer_UI::~Mixer_UI ()
 {
 	monitor_section_detached ();
 
+	delete _surround_strip;
 	delete foldback_strip;
 	foldback_strip = 0;
 	delete _plugin_selector;
@@ -536,19 +539,6 @@ Mixer_UI::remove_master (VCAMasterStrip* vms)
 	}
 }
 
-bool
-Mixer_UI::masters_scroller_button_release (GdkEventButton* ev)
-{
-	using namespace Menu_Helpers;
-
-	if (Keyboard::is_context_menu_event (ev)) {
-		ARDOUR_UI::instance()->add_route ();
-		return true;
-	}
-
-	return false;
-}
-
 void
 Mixer_UI::new_masters_created ()
 {
@@ -598,6 +588,8 @@ Mixer_UI::add_stripables (StripableList& slist)
 		nroutes++;
 
 		// XXX what does this special case do?
+		// A: it inserts the new track at the correct point in the model
+		// uness it's the the first (after master-bus, which is not in Mixbus track-model)
 		if (s->presentation_info().order() == (slist.front()->presentation_info().order() + slist.size())) {
 			insert_iter = it;
 			break;
@@ -677,6 +669,14 @@ Mixer_UI::add_stripables (StripableList& slist)
 					continue;
 				}
 
+				if (route->is_surround_master ()) {
+					if (!_surround_strip) {
+						_surround_strip = new SurroundStrip (*this, _session, route);
+					}
+					out_packer.pack_start (*_surround_strip, false, false);
+					continue;
+				}
+
 				strip = new MixerStrip (*this, _session, route);
 				strip->set_selected (route->is_selected ());
 				strips.push_back (strip);
@@ -690,7 +690,6 @@ Mixer_UI::add_stripables (StripableList& slist)
 				show_strip (strip);
 
 				if (route->is_master()) {
-
 					out_packer.pack_start (*strip, false, false);
 					strip->set_packed (true);
 
@@ -719,7 +718,7 @@ Mixer_UI::add_stripables (StripableList& slist)
 	track_display.set_model (track_model);
 
 	if (!from_scratch) {
-		sync_presentation_info_from_treeview ();
+		sync_treeview_from_presentation_info (Properties::order);
 	}
 
 	redisplay_track_list ();
@@ -803,6 +802,24 @@ Mixer_UI::remove_strip (MixerStrip* strip)
 }
 
 void
+Mixer_UI::remove_surround_master (SurroundStrip* strip)
+{
+	if (_session && _session->deletion_in_progress()) {
+		/* its all being taken care of */
+		return;
+	}
+	assert (strip == _surround_strip);
+	out_packer.remove (*_surround_strip);
+	_surround_strip = 0;
+
+	RefPtr<ToggleAction> surround_action = ActionManager::get_toggle_action (X_("Mixer"), "ToggleSurroundMaster");
+	surround_action->set_active (false);
+
+	Glib::RefPtr<Action> surround_export = ActionManager::get_action (X_("Main"), X_("SurroundExport"));
+	surround_export->set_sensitive (false);
+}
+
+void
 Mixer_UI::remove_foldback (FoldbackStrip* strip)
 {
 	if (_session && _session->deletion_in_progress()) {
@@ -864,6 +881,10 @@ Mixer_UI::sync_presentation_info_from_treeview ()
 			continue;
 		}
 		if (stripable->is_monitor() || stripable->is_auditioner()) {
+			assert (0);
+			continue;
+		}
+		if (stripable->is_surround_master()) {
 			assert (0);
 			continue;
 		}
@@ -1251,7 +1272,13 @@ Mixer_UI::set_session (Session* sess)
 
 	update_scene_buttons();
 
+	RefPtr<ToggleAction> surround_action = ActionManager::get_toggle_action (X_("Mixer"), "ToggleSurroundMaster");
+	Glib::RefPtr<Action> surround_export = ActionManager::get_action (X_("Main"), X_("SurroundExport"));
+
 	if (!_session) {
+		surround_action->set_sensitive (false);
+		surround_export->set_sensitive (false);
+
 		PBD::Unwinder<bool> uw (ignore_plugin_reorder, true);
 		favorite_plugins_model->clear ();
 		_selection.clear ();
@@ -1264,6 +1291,10 @@ Mixer_UI::set_session (Session* sess)
 	set_state (*node, 0);
 
 	update_title ();
+
+	surround_action->set_sensitive (_session->vapor_barrier ());
+	surround_action->set_active (nullptr != _session->surround_master());
+	surround_export->set_sensitive (_session->vapor_export_barrier () && nullptr != _session->surround_master ());
 
 #if 0
 	/* skip mapping all session-config vars, we only need one */
@@ -1282,6 +1313,7 @@ Mixer_UI::set_session (Session* sess)
 	_session->config.ParameterChanged.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::parameter_changed, this, _1), gui_context());
 	_session->DirtyChanged.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::update_title, this), gui_context());
 	_session->StateSaved.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::update_title, this), gui_context());
+	_session->SurroundMasterAddedOrRemoved.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::sync_surround_action, this), gui_context());
 
 	_session->vca_manager().VCAAdded.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::add_masters, this, _1), gui_context());
 	_session->vca_manager().VCACreated.connect (_session_connections, invalidator (*this), boost::bind (&Mixer_UI::new_masters_created, this), gui_context());
@@ -1446,6 +1478,9 @@ Mixer_UI::fast_update_strips ()
 		if (foldback_strip) {
 			foldback_strip->fast_update ();
 		}
+		if (_surround_strip) {
+			_surround_strip->fast_update ();
+		}
 	}
 }
 
@@ -1467,7 +1502,7 @@ Mixer_UI::set_all_strips_visibility (bool yn)
 				continue;
 			}
 
-			if (strip->route()->is_master() || strip->route()->is_monitor()) {
+			if (strip->route()->is_singleton()) {
 				continue;
 			}
 
@@ -1499,7 +1534,7 @@ Mixer_UI::set_all_audio_midi_visibility (int tracks, bool yn)
 				continue;
 			}
 
-			if (strip->route()->is_master() || strip->route()->is_monitor()) {
+			if (strip->route()->is_singleton()) {
 				continue;
 			}
 
@@ -1770,7 +1805,7 @@ Mixer_UI::redisplay_track_list ()
 
 		} else {
 
-			if (stripable->is_master() || stripable->is_monitor()) {
+			if (stripable->is_singleton()) {
 				/* do nothing, these cannot be hidden */
 			} else {
 				if (strip->packed()) {
@@ -1813,6 +1848,12 @@ Mixer_UI::redisplay_track_list ()
 	}
 	_spill_scroll_position = 0;
 
+	if (_surround_strip) {
+		out_packer.reorder_child (*_surround_strip, -1);
+	}
+	if (_monitor_section.tearoff ().get_parent ()) {
+		out_packer.reorder_child (_monitor_section.tearoff(), -1);
+	}
 }
 
 void
@@ -2047,6 +2088,9 @@ Mixer_UI::stripable_property_changed (const PropertyChange& what_changed, std::w
 		}
 	}
 
+	if (s->is_surround_master ()) {
+		return;
+	}
 	if (s->is_master ()) {
 		return;
 	}
@@ -3676,6 +3720,12 @@ Mixer_UI::register_actions ()
 
 	ActionManager::register_toggle_action (group, X_("ToggleMonitorSection"), _("Mixer: Show Monitor Section"), sigc::mem_fun (*this, &Mixer_UI::toggle_monitor_section));
 
+#ifdef MIXBUS
+	ActionManager::register_toggle_action (group, X_("ToggleSurroundMaster"), _("Atmos Surround Master"), sigc::mem_fun (*this, &Mixer_UI::toggle_surround_master));
+#else
+	ActionManager::register_toggle_action (group, X_("ToggleSurroundMaster"), _("Surround Master"), sigc::mem_fun (*this, &Mixer_UI::toggle_surround_master));
+#endif
+
 	ActionManager::register_toggle_action (group, X_("ToggleFoldbackStrip"), _("Mixer: Show Foldback Strip"), sigc::mem_fun (*this, &Mixer_UI::toggle_foldback_strip));
 
 	ActionManager::register_toggle_action (group, X_("toggle-disk-monitor"), _("Toggle Disk Monitoring"), sigc::bind (sigc::mem_fun (*this, &Mixer_UI::toggle_monitor_action), MonitorDisk, false, false));
@@ -4247,9 +4297,14 @@ Mixer_UI::screenshot (std::string const& filename)
 		vca_scroller_base.hide();
 	}
 
+	if (_surround_strip) {
+		out_packer.remove (*_surround_strip);
+		b.pack_start (*_surround_strip, false, false);
+		_surround_strip->hide_spacer (true);
+	}
 	if (master) {
 		out_packer.remove (*master);
-		b.pack_start (*master, false, false);
+		b.pack_end (*master, false, false);
 		master->hide_master_spacer (true);
 	}
 
@@ -4280,6 +4335,10 @@ Mixer_UI::screenshot (std::string const& filename)
 	if (with_vca) {
 		vca_scroller_base.show();
 		vca_scroller.add (vca_hpacker);
+	}
+	if (_surround_strip) {
+		_surround_strip->hide_spacer (false);
+		out_packer.pack_end (*_surround_strip, false, false);
 	}
 	if (master) {
 		master->hide_master_spacer (false);
@@ -4322,4 +4381,52 @@ Mixer_UI::toggle_monitor_action (MonitorChoice monitor_choice, bool group_overri
 		}
 
 	}
+}
+
+void
+Mixer_UI::toggle_surround_master ()
+{
+	if (!_session || !_session->vapor_barrier ()) {
+		return;
+	}
+
+	RefPtr<ToggleAction> act = ActionManager::get_toggle_action (X_("Mixer"), "ToggleSurroundMaster");
+	bool want_sm = act->get_active();
+	bool have_sm = _session->surround_master () != nullptr;
+
+	if (want_sm == have_sm) {
+		return;
+	}
+
+	if (want_sm) {
+		_session->config.set_use_surround_master (true);
+	} else {
+		ArdourMessageDialog md (_("Disabling surround master will delete all existing surround panner state.\nThis cannot be undonoe. Proceed anyway?"), false, MESSAGE_QUESTION, BUTTONS_YES_NO);
+		if (md.run () == RESPONSE_YES) {
+			_session->config.set_use_surround_master (false);
+		}
+	}
+
+	have_sm = _session->surround_master () != nullptr;
+
+	act->set_active (have_sm);
+
+	Glib::RefPtr<Action> surround_export = ActionManager::get_action (X_("Main"), X_("SurroundExport"));
+	surround_export->set_sensitive (have_sm && _session->vapor_export_barrier ());
+}
+
+void
+Mixer_UI::sync_surround_action ()
+{
+	RefPtr<ToggleAction> act = ActionManager::get_toggle_action (X_("Mixer"), "ToggleSurroundMaster");
+	if (_session->config.get_use_surround_master () == act->get_active ()) {
+		return;
+	}
+
+	bool have_sm = _session->surround_master () != nullptr;
+
+	act->set_active (have_sm);
+
+	Glib::RefPtr<Action> surround_export = ActionManager::get_action (X_("Main"), X_("SurroundExport"));
+	surround_export->set_sensitive (have_sm && _session->vapor_export_barrier ());
 }

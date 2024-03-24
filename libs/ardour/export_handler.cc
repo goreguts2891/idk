@@ -40,6 +40,7 @@
 #include "ardour/export_format_specification.h"
 #include "ardour/export_filename.h"
 #include "ardour/soundcloud_upload.h"
+#include "ardour/surround_return.h"
 #include "ardour/system_exec.h"
 #include "pbd/openuri.h"
 #include "pbd/basename.h"
@@ -123,6 +124,9 @@ ExportHandler::ExportHandler (Session & session)
 
 ExportHandler::~ExportHandler ()
 {
+	if (export_status->aborted () && !current_timespan->vapor ().empty () && session.surround_master ()) {
+		session.surround_master ()->surround_return ()->finalize_export ();
+	}
 	graph_builder->cleanup (export_status->aborted () );
 }
 
@@ -227,6 +231,11 @@ ExportHandler::start_timespan ()
 	post_processing = false;
 	session.ProcessExport.connect_same_thread (process_connection, boost::bind (&ExportHandler::process, this, _1));
 	process_position = current_timespan->get_start();
+
+	if (!region_export && !current_timespan->vapor ().empty () && session.surround_master ()) {
+		session.surround_master ()->surround_return ()->setup_export (current_timespan->vapor (), current_timespan->get_start (), current_timespan->get_end ());
+	}
+
 	// TODO check if it's a RegionExport.. set flag to skip  process_without_events()
 	return session.start_audio_export (process_position, realtime, region_export);
 }
@@ -295,11 +304,31 @@ ExportHandler::process_timespan (samplecnt_t samples)
 	samplecnt_t samples_to_read = 0;
 	samplepos_t const end = current_timespan->get_end();
 
+	if (process_position >= end) {
+		/* export complete, post-roll to feed and flush latent plugins
+		 * (This is mainly neede for Vapor) */
+		if (process_position + samples < end + session.worst_latency_preroll ()) {
+			process_position += samples;
+			return 0;
+		}
+
+		export_status->stop = true;
+
+		/* Start post-processing/normalizing if necessary */
+		post_processing = graph_builder->need_postprocessing ();
+		if (post_processing) {
+			export_status->total_postprocessing_cycles = graph_builder->get_postprocessing_cycle_count();
+			export_status->current_postprocessing_cycle = 0;
+		} else {
+			finish_timespan ();
+		}
+		return 1; /* trigger realtime_stop() */
+	}
+
 	bool const last_cycle = (process_position + samples >= end);
 
 	if (last_cycle) {
 		samples_to_read = end - process_position;
-		export_status->stop = true;
 	} else {
 		samples_to_read = samples;
 	}
@@ -310,18 +339,6 @@ ExportHandler::process_timespan (samplecnt_t samples)
 		process_position += ret;
 		export_status->processed_samples += ret;
 		export_status->processed_samples_current_timespan += ret;
-	}
-
-	/* Start post-processing/normalizing if necessary */
-	if (last_cycle) {
-		post_processing = graph_builder->need_postprocessing ();
-		if (post_processing) {
-			export_status->total_postprocessing_cycles = graph_builder->get_postprocessing_cycle_count();
-			export_status->current_postprocessing_cycle = 0;
-		} else {
-			finish_timespan ();
-		}
-		return 1; /* trigger realtime_stop() */
 	}
 
 	return 0;
@@ -369,6 +386,10 @@ ExportHandler::start_timespan_bg (void* eh)
 void
 ExportHandler::finish_timespan ()
 {
+	if (/*!region_export &&*/ !current_timespan->vapor ().empty () && session.surround_master ()) {
+		session.surround_master ()->surround_return ()->finalize_export ();
+	}
+
 	graph_builder->get_analysis_results (export_status->result_map);
 
 	/* work-around: split-channel will produce several files
@@ -652,6 +673,9 @@ ExportHandler::export_cd_marker_file (ExportTimespanPtr timespan, ExportFormatSp
 		}
 
 	} catch (std::exception& e) {
+		error << string_compose (_("an error occurred while writing a TOC/CUE file: %1"), e.what()) << endmsg;
+		::g_unlink (filepath.c_str());
+	} catch (Glib::ConvertError const& e) {
 		error << string_compose (_("an error occurred while writing a TOC/CUE file: %1"), e.what()) << endmsg;
 		::g_unlink (filepath.c_str());
 	} catch (Glib::Exception& e) {
@@ -1001,7 +1025,7 @@ ExportHandler::cue_escape_cdtext (const std::string& txt)
 	std::string out;
 
 	try {
-		latin1_txt = Glib::convert (txt, "ISO-8859-1", "UTF-8");
+		latin1_txt = Glib::convert_with_fallback (txt, "ISO-8859-1", "UTF-8", "_");
 	} catch (Glib::ConvertError& err) {
 		throw Glib::ConvertError (err.code(), string_compose (_("Cannot convert %1 to Latin-1 text"), txt));
 	}

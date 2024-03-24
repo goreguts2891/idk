@@ -748,6 +748,7 @@ ARDOUR::init (bool try_optimization, const char* localedir, bool with_gui)
 
 	reserved_io_names[_("Monitor")]             = true;
 	reserved_io_names[_("Master")]              = true;
+	reserved_io_names[_("Surround")]            = true;
 	reserved_io_names[X_("auditioner")]         = true; // auditioner.cc  Track (s, "auditioner",...)
 	reserved_io_names[X_("x-virtual-keyboard")] = false;
 	reserved_io_names[X_("MIDI Tracer 1")]      = false;
@@ -925,6 +926,9 @@ ARDOUR::setup_fpu ()
 		    : "=r"(cw)::"memory");
 	}
 
+#elif defined(__ARMEL__)
+	/* no FTZ instructions on that platform */
+#warning you do not want to compile Arodur on armel.
 #elif defined(__arm__)
 	/* http://infocenter.arm.com/help/topic/com.arm.doc.dui0068b/BCFHFBGA.html
 	 * bit 24: flush-to-zero */

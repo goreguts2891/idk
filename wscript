@@ -298,20 +298,31 @@ top = '.'
 out = 'build'
 
 children = [
+        # patched 3rd party libs
         'libs/clearlooks-newer',
+        'libs/zita-resampler',
+        'libs/zita-convolver',
         # optionally external libraries
         'libs/fluidsynth',
         'libs/hidapi',
         'libs/libltc',
-        'libs/lua',
         'libs/ptformat',
         'libs/qm-dsp',
         'libs/vamp-plugins',
         'libs/vamp-pyin',
-        'libs/zita-resampler',
-        'libs/zita-convolver',
+        'libs/aaf',
+        # ytk/
+        'libs/tk/ztk',
+        'libs/tk/ydk-pixbuf',
+        'libs/tk/ydk',
+        'libs/tk/ytk',
+        'libs/tk/ztkmm',
+        'libs/tk/ydkmm',
+        'libs/tk/ytkmm',
+        'libs/tk/suil',
         # core ardour libraries
         'libs/pbd',
+        'libs/lua',
         'libs/midi++2',
         'libs/evoral',
         'libs/ctrl-interface',
@@ -325,6 +336,7 @@ children = [
         'libs/canvas',
         'libs/widgets',
         'libs/waveview',
+        # plugins
         'libs/plugins/reasonablesynth.lv2',
         'libs/plugins/a-comp.lv2',
         'libs/plugins/a-exp.lv2',
@@ -332,7 +344,8 @@ children = [
         'libs/plugins/a-eq.lv2',
         'libs/plugins/a-reverb.lv2',
         'libs/plugins/a-fluidsynth.lv2',
-        'gtk2_ardour',
+        #'libs/plugins/a-vapor.lv2',
+        # arch independent data
         'share/export',
         'share/media',
         'share/midi_maps',
@@ -342,6 +355,8 @@ children = [
         'share/plugin_metadata',
         'share/scripts',
         'share/web_surfaces',
+        # frontends
+        'gtk2_ardour',
         'headless',
         'luasession',
         'session_utils',
@@ -356,6 +371,7 @@ i18n_children = [
         'gtk2_ardour',
         'libs/ardour',
         'libs/gtkmm2ext',
+        'libs/tk/ytk',
 ]
 
 def set_compiler_flags (conf,opt):
@@ -427,6 +443,9 @@ int main() { return 0; }''',
 
     if opt.gprofile:
         debug_flags = [ flags_dict['gprofile'] ]
+
+    if opt.gdebug or conf.env['DEBUG']:
+        debug_flags.append('-DG_ENABLE_DEBUG')
 
     # OSX
     if platform == 'darwin':
@@ -843,7 +862,7 @@ def options(opt):
     opt.add_option('--arch', type='string', action='store', dest='arch',
                     help='Architecture-specific compiler FLAGS')
     opt.add_option('--with-backends', type='string', action='store', default='', dest='with_backends',
-                    help='Specify which backend modules are to be included(jack,alsa,dummy,portaudio,coreaudio,pulseaudio)')
+                    help='Specify which backend modules are to be included(jack,alsa,portaudio,coreaudio,pulseaudio)')
     opt.add_option('--backtrace', action='store_true', default=False, dest='backtrace',
                     help='Compile with -rdynamic -- allow obtaining backtraces from within Ardour')
     opt.add_option('--no-carbon', action='store_true', default=False, dest='nocarbon',
@@ -869,6 +888,8 @@ def options(opt):
                     help='Build a version suitable for distribution as a zero-cost binary')
     opt.add_option('--profile', action='store_true', default=False, dest='profile',
                     help='Compile for use with profiling tools requiring a frame pointer')
+    opt.add_option('--gtk-debug', action='store_true', default=False, dest='gdebug',
+                    help='Enable g/ytk debug mode (G_ENABLE_DEBUG)')
     opt.add_option('--gprofile', action='store_true', default=False, dest='gprofile',
                     help='Compile for use with gprofile')
     opt.add_option('--libjack', type='string', default="auto", dest='libjack_link',
@@ -890,7 +911,7 @@ def options(opt):
     opt.add_option('--lv2dir', type='string', help="install destination for builtin LV2 bundles [Default: LIBDIR/lv2]")
     opt.add_option('--no-lxvst', action='store_true', default=False, dest='no_lxvst',
                     help='Compile without support for linuxVST plugins')
-    opt.add_option('--vst3', action='store_true', default=False, dest='no_vst3',
+    opt.add_option('--no-vst3', action='store_true', default=False, dest='no_vst3',
                     help='Compile without support for VST3 plugins')
     opt.add_option('--no-lrdf', action='store_true', dest='no_lrdf',
                     help='Compile without support for LRDF LADSPA data even if present')
@@ -951,6 +972,8 @@ def options(opt):
                     help='Disable threaded waveview rendering')
     opt.add_option('--no-futex-semaphore', action='store_true', default=False, dest='no_futex_semaphore',
                     help='Disable use of futex for semaphores (Linux only)')
+    opt.add_option('--no-ytk', action='store_true', default=False, dest='no_ytk',
+                   help='Use system-wide GTK instead of Ardour YTK')
     opt.add_option(
         '--qm-dsp-include', type='string', action='store',
         dest='qm_dsp_include', default='/usr/include/qm-dsp',
@@ -985,7 +1008,7 @@ def configure(conf):
 
     # freedesktop translations needs itstool > 1.0.3 (-j option)
     if Options.options.freedesktop:
-        output = subprocess.Popen("itstool --version", shell=True, stderr=subprocess.STDOUT, stdout=subprocess.PIPE).communicate()[0].splitlines()
+        output = subprocess.Popen("itstool --version", shell=True, stderr=subprocess.DEVNULL, stdout=subprocess.PIPE).communicate()[0].splitlines()
         o = output[0].decode('utf-8')
         itstool = o.split(' ')[0]
         version = o.split(' ')[1].split('.')
@@ -1137,6 +1160,12 @@ def configure(conf):
     if Options.options.internal_shared_libs:
         conf.define('INTERNAL_SHARED_LIBS', 1)
 
+    if not Options.options.no_ytk:
+        conf.define('YTK', 1)
+        conf.define('HAVE_SUIL', 1)
+    else:
+        autowaf.check_pkg(conf, 'suil-0', uselib_store='SUIL', atleast_version='0.6.0', mandatory=False)
+
     if Options.options.use_external_libs:
         conf.define('USE_EXTERNAL_LIBS', 1)
         conf.env.append_value(
@@ -1185,7 +1214,6 @@ def configure(conf):
         conf.env.append_value('LDFLAGS', '-L/usr/X11R6/lib')
 
     autowaf.check_pkg(conf, 'glib-2.0', uselib_store='GLIB', atleast_version='2.28', mandatory=True)
-    autowaf.check_pkg(conf, 'glib-2.0', uselib_store='GLIB_2_64', atleast_version='2.64', mandatory=False)
     autowaf.check_pkg(conf, 'gthread-2.0', uselib_store='GTHREAD', atleast_version='2.2', mandatory=True)
     autowaf.check_pkg(conf, 'glibmm-2.4', uselib_store='GLIBMM', atleast_version='2.32.0', mandatory=True)
     autowaf.check_pkg(conf, 'sndfile', uselib_store='SNDFILE', atleast_version='1.0.18', mandatory=True)
@@ -1420,7 +1448,7 @@ int main () { __int128 x = 0; return 0; }
         if Options.options.dist_target == 'mingw':
             backends += ['portaudio']
 
-    if opts.build_tests and 'dummy' not in backends:
+    if 'dummy' not in backends:
         backends += ['dummy']
 
     conf.env['BACKENDS'] = backends
@@ -1517,6 +1545,7 @@ const char* const ardour_config_info = "\\n\\
     write_config_text('Install prefix',        conf.env['PREFIX'])
     write_config_text('Strict compiler flags', conf.env['STRICT'])
     write_config_text('Internal Shared Libraries', conf.is_defined('INTERNAL_SHARED_LIBS'))
+    write_config_text('Use YTK instead of GTK',    conf.is_defined('YTK'))
     write_config_text('Use External Libraries', conf.is_defined('USE_EXTERNAL_LIBS'))
     write_config_text('Library exports hidden', conf.is_defined('EXPORT_VISIBILITY_HIDDEN'))
     write_config_text('Free/Demo copy',        conf.is_defined('FREEBIE'))
@@ -1541,6 +1570,7 @@ const char* const ardour_config_info = "\\n\\
     write_config_text('FPU AVX/FMA support',   conf.is_defined('FPU_AVX_FMA_SUPPORT'))
     write_config_text('Futex Semaphore',       conf.is_defined('USE_FUTEX_SEMAPHORE'))
     write_config_text('Freedesktop files',     opts.freedesktop)
+    write_config_text('G_ENABLE_DEBUG',        opts.gdebug or conf.env['DEBUG'])
     write_config_text('Libjack linking',       conf.env['libjack_link'])
     write_config_text('Libjack metadata',      conf.is_defined ('HAVE_JACK_METADATA'))
     write_config_text('Lua Binding Doc',       conf.is_defined('LUABINDINGDOC'))
@@ -1610,6 +1640,9 @@ def build(bld):
     bld.path.find_dir ('libs/gtkmm2ext/gtkmm2ext')
     bld.path.find_dir ('libs/ardour/ardour')
     bld.path.find_dir ('libs/pbd/pbd')
+
+    #if bld.is_defined('YTK'):
+    #    bld.path.find_dir ('libs/tk/ztkmm')
 
     # set up target directories
     lwrcase_dirname = 'ardour' + bld.env['MAJOR']

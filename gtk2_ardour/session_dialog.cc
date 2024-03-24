@@ -468,6 +468,18 @@ SessionDialog::setup_initial_choice_box ()
 	archive_filter.set_name (_("Session Archives"));
 	existing_session_chooser.add_filter (archive_filter);
 
+	FileFilter aaf_filter;
+	aaf_filter.add_pattern (string_compose(X_("*%1"), ARDOUR::advanced_authoring_format_suffix));
+	aaf_filter.set_name (_("Advanced Authoring Format (AAF)"));
+	existing_session_chooser.add_filter (aaf_filter);
+
+	FileFilter all_filter;
+	all_filter.add_pattern (string_compose(X_("*%1"), ARDOUR::statefile_suffix));
+	all_filter.add_pattern (string_compose(X_("*%1"), ARDOUR::session_archive_suffix));
+	all_filter.add_pattern (string_compose(X_("*%1"), ARDOUR::advanced_authoring_format_suffix));
+	all_filter.set_name (_("All supported files"));
+	existing_session_chooser.add_filter (all_filter);
+
 	existing_session_chooser.set_filter (session_filter);
 
 	Gtkmm2ext::add_volume_shortcuts (existing_session_chooser);
@@ -678,11 +690,11 @@ SessionDialog::setup_new_session_page ()
 	timebase_chooser.set_active (Config->get_preferred_time_domain() == Temporal::BeatTime ? 1 : 0);
 
 	set_tooltip (timebase_chooser, _(
-	"The timebase controls how some items on the timeline respond to tempo map editing.\n\n"
+	"The time domain controls how some items on the timeline respond to tempo map editing.\n\n"
 	"If you choose Beat Time, some items (like markers) will move when you change tempo.\n\n"
 	"If you choose Audio Time, these items will not move when you change tempo.\n\n"
-	"The timebase also affects which ruler lanes will be initially shown.\n\n"
-	"You can change the session's timebase anytime in Session->Properties." 
+	"The time domain also affects which ruler lanes will be initially visible.\n\n"
+	"You can change the session's timebase anytime in Session -> Properties."
 		));
 
 	//Template & Template Description area

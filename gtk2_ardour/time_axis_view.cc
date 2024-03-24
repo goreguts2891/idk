@@ -160,6 +160,7 @@ TimeAxisView::TimeAxisView (ARDOUR::Session* sess, PublicEditor& ed, TimeAxisVie
 
 	inactive_label.set_name (X_("TrackNameEditor"));
 	inactive_label.set_alignment (0.0, 0.5);
+	inactive_label.set_width_chars (12);
 	set_tooltip (inactive_label, _("This track is inactive. (right-click to activate)"));
 
 	{
@@ -788,13 +789,11 @@ TimeAxisView::set_selected (bool yn)
 	AxisView::set_selected (yn);
 
 	if (_selected) {
-		time_axis_frame.set_shadow_type (Gtk::SHADOW_IN);
-		time_axis_frame.set_name ("MixerStripSelectedFrame");
+		time_axis_frame.set_name (controls_base_selected_name);
 		controls_ebox.set_name (controls_base_selected_name);
 		controls_vbox.set_name (controls_base_selected_name);
 		time_axis_vbox.set_name (controls_base_selected_name);
 	} else {
-		time_axis_frame.set_shadow_type (Gtk::SHADOW_NONE);
 		time_axis_frame.set_name (controls_base_unselected_name);
 		controls_ebox.set_name (controls_base_unselected_name);
 		controls_vbox.set_name (controls_base_unselected_name);

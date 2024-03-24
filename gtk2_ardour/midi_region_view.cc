@@ -129,6 +129,8 @@ MidiRegionView::MidiRegionView (ArdourCanvas::Container*      parent,
 	, _entered_note (0)
 	, _select_all_notes_after_add (false)
 	, _mouse_changed_selection (false)
+	, split_tuple (0)
+	, note_splitting (false)
 {
 	CANVAS_DEBUG_NAME (_note_group, string_compose ("note group for %1", get_item_name()));
 
@@ -2246,6 +2248,7 @@ MidiRegionView::clear_selection ()
 {
 	clear_note_selection ();
 	_mouse_state = None;
+	end_note_splitting ();
 }
 
 void
@@ -4563,11 +4566,12 @@ MidiRegionView::get_note_name (std::shared_ptr<NoteType> n, uint8_t note_value) 
 	}
 
 	char buf[128];
-	snprintf (buf, sizeof (buf), "%s #%d\nCh %d Vel %d",
+	snprintf (buf, sizeof (buf), "%s #%d\nCh %d Vel %d\n%.3f beats",
 	          name.empty() ? ParameterDescriptor::midi_note_name (note_value).c_str() : name.c_str(),
 	          (int) note_value,
 	          (int) n->channel() + 1,
-	          (int) n->velocity());  //we display velocity 0-based; velocity 0 is a 'note-off' so the user just sees values 1..127 which 'looks' 1-based
+	          (int) n->velocity(),  //we display velocity 0-based; velocity 0 is a 'note-off' so the user just sees values 1..127 which 'looks' 1-based
+	          n->length().get_beats() + (n->length().get_ticks()/(float)Temporal::ticks_per_beat));
 
 	return buf;
 }
@@ -4768,5 +4772,210 @@ MidiRegionView::sync_velocity_drag (double factor)
 {
 	for (auto & s : _selection) {
 		s->set_velocity (factor);
+	}
+}
+
+void
+MidiRegionView::start_note_splitting ()
+{
+	note_splitting = true;
+	split_info.clear ();
+
+	for (auto & s : _selection) {
+		std::shared_ptr<NoteType> base (s->note());
+
+		split_info.push_back (SplitInfo (base->time(),
+		                                 base->length(),
+		                                 base->note(),
+		                                 base->channel(),
+		                                 base->velocity(),
+		                                 base->off_velocity()));
+	}
+
+	split_tuple = 1;
+}
+
+void
+MidiRegionView::end_note_splitting ()
+{
+	split_info.clear ();
+	note_splitting = false;
+}
+
+void
+MidiRegionView::split_notes_grid ()
+{
+	start_note_splitting ();
+
+	if (split_info.empty()) {
+		return;
+	}
+
+	/* XXX need to adjust pos to be global */
+	bool success;
+	Temporal::Beats grid = trackview.editor().get_grid_type_as_beats (success, timepos_t (split_info.front().time));
+
+	if (!success) {
+		/* No grid => use quarters */
+		grid = Beats (1, 0);
+	}
+
+	split_tuple = split_info.front().base_len.to_ticks() / grid.to_ticks();
+
+	start_note_diff_command (_("split notes"));
+	for (auto & s : _selection) {
+		note_diff_remove_note (s);
+	}
+	add_split_notes ();
+	apply_note_diff (false);
+}
+
+void
+MidiRegionView::split_notes_more ()
+{
+	if (split_info.empty()) {
+		start_note_splitting ();
+		if (split_info.empty()) {
+			return;
+		}
+	}
+
+	split_tuple++;
+
+	char buf[64];
+	snprintf (buf, sizeof (buf), "Split %s into %d", split_info.front().base_len.str().c_str(), split_tuple);
+	show_verbose_cursor (buf, 0, 0);
+
+	start_note_diff_command (_("split notes more"));
+	for (auto & s : _selection) {
+		note_diff_remove_note (s);
+	}
+	add_split_notes ();
+	apply_note_diff (false);
+}
+
+void
+MidiRegionView::split_notes_less ()
+{
+	if (split_info.empty()) {
+		start_note_splitting ();
+		if (split_info.empty()) {
+			return;
+		}
+	}
+
+	if (split_tuple < 2) {
+		return;
+	}
+
+	split_tuple--;
+
+	char buf[64];
+	snprintf (buf, sizeof (buf), "Split %s into %d", split_info.front().base_len.str().c_str(), split_tuple);
+	show_verbose_cursor (buf, 0, 0);
+
+	start_note_diff_command (_("split notes less"));
+	for (auto & s : _selection) {
+		note_diff_remove_note (s);
+	}
+	add_split_notes ();
+	apply_note_diff (false);
+}
+
+void
+MidiRegionView::join_notes ()
+{
+	/* Grab the selection, split it by pitch and find the earliest and
+	 * latest contiguous segments of the same pitch
+	 */
+
+	for (int n = 0; n < 16; ++n) {
+		join_notes_on_channel (n);
+	}
+}
+
+struct NoteExtentInfo
+{
+	Temporal::Beats start;
+	Temporal::Beats end;
+	float velocity;
+	float off_velocity;
+	int cnt;
+
+	NoteExtentInfo()
+		: start (std::numeric_limits<Temporal::Beats>::max())
+		, end (Temporal::Beats())
+		, velocity (0.f)
+		, off_velocity (0.f)
+		, cnt (0) {}
+};
+
+void
+MidiRegionView::join_notes_on_channel (int chn)
+{
+	NoteExtentInfo ninfo[127];
+
+	for (auto & s : _selection) {
+
+		if (s->note()->channel() != chn) {
+			continue;
+		}
+
+		std::shared_ptr<NoteType> base (s->note());
+		NoteExtentInfo& ni (ninfo[base->note()]);
+		ni.cnt++;
+
+		if (base->time() < ni.start) {
+			ni.start = base->time();
+		}
+
+		if (base->end_time() > ni.end) {
+			ni.end = base->end_time();
+		}
+
+		ni.velocity += base->velocity();
+		ni.off_velocity += base->off_velocity();
+	}
+
+	start_note_diff_command (_("join notes"));
+	for (auto & s : _selection) {
+		/* Only remove pitches that occur more than once */
+		if (ninfo[s->note()->note()].cnt > 1 && s->note()->channel() == chn) {
+			note_diff_remove_note (s);
+		}
+	}
+
+	for (size_t n = 0; n < 127; ++n) {
+
+		NoteExtentInfo& ni (ninfo[n]);
+
+		if (ni.cnt > 1 && ni.end != Temporal::Beats()) {
+
+			Temporal::Beats b = ni.end - ni.start;
+			std::shared_ptr<NoteType> new_note (new NoteType (chn, ni.start, b, n, ni.velocity / ni.cnt));
+			new_note->set_off_velocity (ni.off_velocity / ni.cnt);
+			note_diff_add_note (new_note, true, true);
+		}
+	}
+
+	apply_note_diff (false);
+
+	end_note_splitting ();
+}
+
+void
+MidiRegionView::add_split_notes ()
+{
+	for (auto const & si : split_info) {
+
+		Beats b = si.base_len / split_tuple;
+		Beats pos (si.time);
+
+		for (uint32_t n = 0; n < split_tuple; ++n) {
+			std::shared_ptr<NoteType> new_note (new NoteType (si.channel, pos, b, si.note,  si.velocity));
+			new_note->set_off_velocity (si.off_velocity);
+			note_diff_add_note (new_note, true, true);
+			pos += b;
+		}
 	}
 }

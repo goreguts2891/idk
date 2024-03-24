@@ -381,6 +381,9 @@ Session::post_engine_init ()
 	} catch (AudioEngine::PortRegistrationFailure& err) {
 		error << err.what() << endmsg;
 		return -5;
+	} catch (ProcessorException const & e) {
+		error << e.what() << endmsg;
+		return -8;
 	} catch (std::exception const & e) {
 		error << _("Unexpected exception during session setup: ") << e.what() << endmsg;
 		return -6;
@@ -654,8 +657,9 @@ Session::create (const string& session_template, BusProfile const * bus_profile,
 				return rv;
 			}
 
-			if (Config->get_use_monitor_bus())
+			if (Config->get_use_monitor_bus()) {
 				add_monitor_section ();
+			}
 		}
 	}
 
@@ -1115,7 +1119,7 @@ Session::export_track_state (std::shared_ptr<RouteList> rl, const string& path)
 		if ((*i)->is_auditioner()) {
 			continue;
 		}
-		if ((*i)->is_master() || (*i)->is_monitor()) {
+		if ((*i)->is_singleton()) {
 			continue;
 		}
 		child->add_child_nocopy ((*i)->get_state());
@@ -2118,17 +2122,21 @@ Session::load_routes (const XMLNode& node, int version)
 
 		std::shared_ptr<Route> route;
 
-		if (version < 3000) {
-			route = XMLRouteFactory_2X (**niter, version);
-		} else if (version < 5000) {
-			route = XMLRouteFactory_3X (**niter, version);
-		} else {
-			route = XMLRouteFactory (**niter, version);
+		try {
+			if (version < 3000) {
+				route = XMLRouteFactory_2X (**niter, version);
+			} else if (version < 5000) {
+				route = XMLRouteFactory_3X (**niter, version);
+			} else {
+				route = XMLRouteFactory (**niter, version);
+			}
+		} catch (...) {
+			goto errout;
 		}
 
 		if (route == 0) {
 			error << _("Session: cannot create track/bus from XML description.") << endmsg;
-			return -1;
+			goto errout;
 		}
 
 		BootMessage (string_compose (_("Loaded track/bus %1"), route->name()));
@@ -2153,6 +2161,12 @@ Session::load_routes (const XMLNode& node, int version)
 	BootMessage (_("Finished adding tracks/busses"));
 
 	return 0;
+
+errout:
+	for (auto const& r : new_routes) {
+		r->drop_references ();
+	}
+	return -1;
 }
 
 std::shared_ptr<Route>
@@ -3726,7 +3740,7 @@ Session::cleanup_sources (CleanupReport& rep)
 {
 	// FIXME: needs adaptation to midi
 
-	SourceList dead_sources;
+	std::set<std::shared_ptr<Source> > dead_sources;
 	string audio_path;
 	string midi_path;
 	vector<string> candidates;
@@ -3772,22 +3786,18 @@ Session::cleanup_sources (CleanupReport& rep)
 	rep.space = 0;
 
 	ls.acquire ();
-	for (SourceMap::iterator i = sources.begin(); i != sources.end(); ) {
-
-		SourceMap::iterator tmp;
-
-		tmp = i;
-		++tmp;
-
+	for (auto const& i : sources) {
+		std::shared_ptr<FileSource> fs = std::dynamic_pointer_cast<FileSource> (i.second);
 		/* do not bother with files that are zero size, otherwise we remove the current "nascent"
 		 * capture files.
 		 */
-
-		if (!i->second->used() && (i->second->empty())) {
-			dead_sources.push_back (i->second);
+		if (fs && fs->is_stub ()) {
+			continue;
 		}
 
-		i = tmp;
+		if (!i.second->used ()) {
+			dead_sources.insert (i.second);
+		}
 	}
 	ls.release ();
 
@@ -3877,7 +3887,7 @@ Session::cleanup_sources (CleanupReport& rep)
 				 * reference to it.
 				 */
 
-				dead_sources.push_back (i->second);
+				dead_sources.insert (i->second);
 				sources.erase (i);
 			}
 		}
@@ -3886,11 +3896,13 @@ Session::cleanup_sources (CleanupReport& rep)
 	}
 	ls.release ();
 
-	for (SourceList::iterator i = dead_sources.begin(); i != dead_sources.end(); ++i) {
+	cerr << "Dead Sources: " << dead_sources.size() << endl;
+
+	for (auto const& i : dead_sources) {
 		/* The following triggers Region::source_deleted (), which
 		 * causes regions to drop the given source */
-		(*i)->drop_references ();
-		SourceRemoved (*i); /* EMIT SIGNAL */
+		i->drop_references ();
+		SourceRemoved (i); /* EMIT SIGNAL */
 	}
 
 	/* now check each candidate source to see if it exists in the list of
@@ -4569,6 +4581,35 @@ Session::config_changed (std::string p, bool ours)
 				add_monitor_section ();
 			} else if (!want_ms && have_ms) {
 				remove_monitor_section ();
+			}
+		}
+	} else if (p == "use-surround-master") {
+		/* NB. This is always called when constructing a session,
+		 * after restoring session state (if any),
+		 * via post_engine_init() -> Config->map_parameters()
+		 */
+		bool want_sm = config.get_use_surround_master();
+		bool have_sm = _surround_master ? true : false;
+		if (loading ()) {
+			/* When loading an existing session, the config "use-surround-master"
+			 * is ignored. Instead the sesion-state (xml) will have added the
+			 * "surround-master" and restored its state (and connections)
+			 * if the session has a surround master..
+			 * Update the config to reflect this.
+			 */
+			if (want_sm != have_sm) {
+				config.set_use_surround_master (have_sm);
+			}
+			SurroundMasterAddedOrRemoved (); /* EMIT SIGNAL */
+		} else  {
+			/* Otherwise, Config::set_use_surround_master() does
+			 * control the the presence of the monitor-section
+			 * (new sessions, user initiated change)
+			 */
+			if (want_sm && !have_sm) {
+				add_surround_master ();
+			} else if (!want_sm && have_sm) {
+				remove_surround_master ();
 			}
 		}
 	} else if (p == "loop-fade-choice") {

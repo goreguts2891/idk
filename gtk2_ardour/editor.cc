@@ -626,6 +626,12 @@ Editor::Editor ()
 	h->pack_start (edit_controls_vbox);
 	controls_layout.add (*h);
 
+	HSeparator* separator = manage (new HSeparator());
+	separator->set_name("TrackSeparator");
+	separator->set_size_request(-1, 1);
+	separator->show();
+	edit_controls_vbox.pack_end (*separator, false, false);
+
 	controls_layout.set_name ("EditControlsBase");
 	controls_layout.add_events (Gdk::BUTTON_PRESS_MASK|Gdk::BUTTON_RELEASE_MASK|Gdk::ENTER_NOTIFY_MASK|Gdk::LEAVE_NOTIFY_MASK|Gdk::SCROLL_MASK);
 	controls_layout.signal_button_press_event().connect (sigc::mem_fun(*this, &Editor::edit_controls_button_event));
@@ -694,6 +700,7 @@ Editor::Editor ()
 	Location::start_changed.connect (*this, invalidator (*this), boost::bind (&Editor::location_changed, this, _1), gui_context());
 	Location::end_changed.connect (*this, invalidator (*this), boost::bind (&Editor::location_changed, this, _1), gui_context());
 	Location::changed.connect (*this, invalidator (*this), boost::bind (&Editor::location_changed, this, _1), gui_context());
+	Location::flags_changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::update_section_rects, this), gui_context ());
 
 #if SELECTION_PROPERTIES_BOX_TODO
 	add_notebook_page (_("Selection"), *_properties_box);
@@ -1434,10 +1441,6 @@ Editor::set_session (Session *t)
 	_session->locations()->changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::refresh_location_display, this), gui_context());
 	_session->auto_loop_location_changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::loop_location_changed, this, _1), gui_context ());
 	_session->history().Changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::history_changed, this), gui_context());
-
-	Location::start_changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::update_section_rects, this), gui_context ());
-	Location::end_changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::update_section_rects, this), gui_context ());
-	Location::flags_changed.connect (_session_connections, invalidator (*this), boost::bind (&Editor::update_section_rects, this), gui_context ());
 
 	_playhead_cursor->track_canvas_item().reparent ((ArdourCanvas::Item*) get_cursor_scroll_group());
 	_playhead_cursor->show ();
@@ -2625,8 +2628,9 @@ Editor::set_state (const XMLNode& node, int version)
 		set_stationary_playhead (yn);
 	}
 
-	if (node.get_property ("show-editor-mixer", yn)) {
-
+	yn = true;
+	node.get_property ("show-editor-mixer", yn);
+	{
 		Glib::RefPtr<ToggleAction> tact = ActionManager::get_toggle_action (X_("Editor"), X_("show-editor-mixer"));
 		/* do it twice to force the change */
 		tact->set_active (!yn);
@@ -3041,22 +3045,7 @@ Editor::_snap_to_bbt (timepos_t const & presnap, Temporal::RoundMode direction, 
 	 */
 
 	if (grid_type == GridTypeBar) {
-		TempoMetric m (tmap->metric_at (presnap));
-		BBT_Argument bbt (m.bbt_at (presnap));
-		switch (direction) {
-		case RoundDownAlways:
-			bbt = BBT_Argument (bbt.reference(), bbt.round_down_to_bar ());
-			break;
-		case RoundUpAlways:
-			bbt = BBT_Argument (bbt.reference(), bbt.round_up_to_bar ());
-			break;
-		case RoundNearest:
-			bbt = BBT_Argument (bbt.reference(), m.round_to_bar (bbt));
-			break;
-		default:
-			break;
-		}
-		return timepos_t (tmap->quarters_at (bbt));
+		return timepos_t (tmap->quarters_at (presnap).round_to_subdivision (get_grid_beat_divisions(_grid_type), direction));
 	}
 
 	if (gpref != SnapToGrid_Unscaled) { // use the visual grid lines which are limited by the zoom scale that the user selected
@@ -3065,7 +3054,7 @@ Editor::_snap_to_bbt (timepos_t const & presnap, Temporal::RoundMode direction, 
 		 * for the snap, based on the grid setting.
 		 */
 
-		int divisor;
+		float divisor;
 		switch (_grid_type) {
 			case GridTypeBeatDiv3:
 			case GridTypeBeatDiv6:
@@ -3076,12 +3065,15 @@ Editor::_snap_to_bbt (timepos_t const & presnap, Temporal::RoundMode direction, 
 			case GridTypeBeatDiv5:
 			case GridTypeBeatDiv10:
 			case GridTypeBeatDiv20:
-				divisor = 5;
+				divisor = 2.5;
 				break;
 			case GridTypeBeatDiv7:
 			case GridTypeBeatDiv14:
 			case GridTypeBeatDiv28:
-				divisor = 7;
+				/* Septuplets suffer from drifting until libtemporal handles fractional ticks
+				 * or if ticks_per_beat (ppqn) is raised to a point where the result
+				 */
+				divisor = 3.5;
 				break;
 			case GridTypeBeat:
 				divisor = 1;
@@ -3619,6 +3611,11 @@ Editor::build_grid_type_menu ()
 	grid_type_selector.AddMenuElem (Menu_Helpers::MenuElem (_("Quintuplets"), *_quintuplet_menu));
 
 	/* septuplet grid */
+#if 0
+	/* Septuplets suffer from drifting and can't be draw properly until libtemporal handles fractional ticks
+	 * or if ticks_per_beat (ppqn) is raised to a point where the result
+	 * of Temporal::ticks_per_beat / beat_div is always an integer
+	 */
 	Gtk::Menu *_septuplet_menu = manage (new Menu);
 	MenuList& septuplet_items (_septuplet_menu->items());
 	{
@@ -3627,6 +3624,7 @@ Editor::build_grid_type_menu ()
 		septuplet_items.push_back (MenuElem (grid_type_strings[(int)GridTypeBeatDiv28], sigc::bind (sigc::mem_fun(*this, &Editor::grid_type_selection_done), (GridType) GridTypeBeatDiv28)));
 	}
 	grid_type_selector.AddMenuElem (Menu_Helpers::MenuElem (_("Septuplets"), *_septuplet_menu));
+#endif
 
 	grid_type_selector.AddMenuElem(SeparatorElem());
 	grid_type_selector.AddMenuElem (MenuElem (grid_type_strings[(int)GridTypeTimecode], sigc::bind (sigc::mem_fun(*this, &Editor::grid_type_selection_done), (GridType) GridTypeTimecode)));
@@ -4561,6 +4559,7 @@ Editor::get_grid_type_as_beats (bool& success, timepos_t const & position)
 		return Temporal::Beats::from_double (tmap->meter_at (position).note_value() / 128.0);
 
 	case GridTypeBeatDiv3:  //Triplet eighth
+		return Temporal::Beats::from_double (tmap->meter_at (position).note_value() / 12.0);
 
 	case GridTypeBeatDiv6:
 		return Temporal::Beats::from_double (tmap->meter_at (position).note_value() / 24.0);
@@ -5965,7 +5964,7 @@ Editor::add_stripables (StripableList& sl)
 
 		} else if ((r = std::dynamic_pointer_cast<Route> (*s)) != 0) {
 
-			if (r->is_auditioner() || r->is_monitor()) {
+			if (r->is_auditioner() || r->is_monitor() || r->is_surround_master ()) {
 				continue;
 			}
 

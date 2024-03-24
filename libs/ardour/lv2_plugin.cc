@@ -237,6 +237,7 @@ public:
 	LilvNode* inline_display_interface; // lv2:extensionData
 	LilvNode* inline_display_in_gui; // lv2:optionalFeature
 	LilvNode* inline_mixer_control; // lv2:PortProperty
+	LilvNode* export_interface; // lv2:extensionData
 #endif
 
 private:
@@ -521,6 +522,7 @@ LV2Plugin::init(const void* c_plugin, samplecnt_t rate)
 	_can_write_automation   = false;
 #ifdef LV2_EXTENDED
 	_display_interface      = 0;
+	_export_interface       = 0;
 	_inline_display_in_gui  = false;
 #endif
 	_max_latency            = 0;
@@ -760,6 +762,9 @@ LV2Plugin::init(const void* c_plugin, samplecnt_t rate)
 #endif
 	if (lilv_nodes_contains (optional_features, _world.inline_display_in_gui)) {
 		_inline_display_in_gui = true;
+	}
+	if (lilv_plugin_has_extension_data(plugin, _world.export_interface)) {
+		_export_interface = (const LV2_Export_Interface*) extension_data (LV2_EXPORT__interface);
 	}
 #endif
 	lilv_nodes_free(optional_features);
@@ -1209,6 +1214,26 @@ LV2Plugin::midnam_model () {
 	_midname_interface->free (model);
 	return rv;
 }
+
+int
+LV2Plugin::setup_export (const char* fn, LV2_Options_Option const* options)
+{
+	if (!_export_interface) {
+		return -1;
+	}
+
+	return _export_interface->setup ((void*)_impl->instance->lv2_handle, fn, options);
+}
+
+int
+LV2Plugin::finalize_export ()
+{
+	if (!_export_interface) {
+		return -1;
+	}
+	return _export_interface->finalize ((void*)_impl->instance->lv2_handle);
+}
+
 #endif
 
 string
@@ -3523,6 +3548,7 @@ LV2World::LV2World()
 	inline_display_interface    = lilv_new_uri(world, LV2_INLINEDISPLAY__interface);
 	inline_display_in_gui       = lilv_new_uri(world, LV2_INLINEDISPLAY__in_gui);
 	inline_mixer_control        = lilv_new_uri(world, "http://ardour.org/lv2/ext#inlineMixerControl");
+	export_interface            = lilv_new_uri(world, LV2_EXPORT__interface);
 #endif
 	bufz_powerOf2BlockLength = lilv_new_uri(world, LV2_BUF_SIZE__powerOf2BlockLength);
 	bufz_fixedBlockLength    = lilv_new_uri(world, LV2_BUF_SIZE__fixedBlockLength);
@@ -3551,6 +3577,7 @@ LV2World::~LV2World()
 	lilv_node_free(inline_display_interface);
 	lilv_node_free(inline_display_in_gui);
 	lilv_node_free(inline_mixer_control);
+	lilv_node_free(export_interface);
 #endif
 	lilv_node_free(patch_Message);
 	lilv_node_free(opts_requiredOptions);
@@ -3973,6 +4000,12 @@ LV2PluginInfo::discover (boost::function <void (std::string const&, PluginScanLo
 					info->n_inputs.n_audio (), info->n_outputs.n_audio (),
 					count_midi_in, count_midi_out,
 					count_ctrl_in, count_ctrl_out), false);
+
+		if (uri == "urn:ardour:a-vapor" || uri == "urn:ardour:a-atmos") {
+			info->internal = true;
+			cb (uri, PluginScanLogEntry::OK, "", true);
+		}
+
 		plugs->push_back(info);
 	}
 

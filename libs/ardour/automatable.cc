@@ -46,6 +46,7 @@
 #include "ardour/plugin_insert.h"
 #include "ardour/record_enable_control.h"
 #include "ardour/session.h"
+#include "ardour/surround_pannable.h"
 #include "ardour/uri_map.h"
 #include "ardour/value_as_string.h"
 
@@ -195,6 +196,8 @@ Automatable::describe_parameter (Evoral::Parameter param)
 		return _("Fader");
 	} else if (param.type() == BusSendLevel) {
 		return _("Send");
+	} else if (param.type() == SurroundSendLevel) {
+		return _("Send");
 	} else if (param.type() == InsertReturnLevel) {
 		return _("Return");
 	} else if (param.type() == TrimAutomation) {
@@ -209,6 +212,24 @@ Automatable::describe_parameter (Evoral::Parameter param)
 		return _("Width");
 	} else if (param.type() == PanElevationAutomation) {
 		return _("Elevation");
+	} else if (param.type() == PanSurroundX) {
+		return _("Left/Right");
+	} else if (param.type() == PanSurroundY) {
+		return _("Front/Back");
+	} else if (param.type() == PanSurroundZ) {
+		return _("Elevation");
+	} else if (param.type() == PanSurroundSize) {
+		return _("Object Size");
+	} else if (param.type() == PanSurroundSnap) {
+		return _("Snap to Speaker");
+	} else if (param.type() == BinauralRenderMode) {
+		return _("Binaural Render mode");
+	} else if (param.type() == PanSurroundElevationEnable) {
+		return X_("hidden");
+	} else if (param.type() == PanSurroundZones) {
+		return X_("hidden");
+	} else if (param.type() == PanSurroundRamp) {
+		return X_("hidden");
 	} else if (param.type() == PhaseAutomation) {
 		return _("Polarity Invert");
 	} else if (param.type() == MidiVelocityAutomation) {
@@ -326,6 +347,10 @@ Automatable::get_automation_xml_state () const
 	}
 
 	for (Controls::const_iterator li = controls().begin(); li != controls().end(); ++li) {
+		std::shared_ptr<AutomationControl> ac = std::dynamic_pointer_cast<AutomationControl>(li->second);
+		if (ac && (ac->flags() & Controllable::NotAutomatable)) {
+			continue;
+		}
 		std::shared_ptr<AutomationList> l = std::dynamic_pointer_cast<AutomationList>(li->second->list());
 		if (l) {
 			node->add_child_nocopy (l->get_state ());
@@ -573,6 +598,11 @@ Automatable::control_factory(const Evoral::Parameter& param)
 		control = new GainControl(_a_session, param);
 	} else if (param.type() == BusSendLevel) {
 		control = new GainControl(_a_session, param);
+	} else if (param.type() == SurroundSendLevel) {
+		control = new GainControl(_a_session, param);
+	} else if (param.type() == PanSurroundX || param.type() == PanSurroundY || param.type() == PanSurroundZ || param.type() == PanSurroundSize || param.type() == PanSurroundSnap || param.type() == BinauralRenderMode) {
+		assert (0);
+		control = new SurroundControllable (_a_session, param.type(), *this);
 	} else if (param.type() == PanAzimuthAutomation || param.type() == PanWidthAutomation || param.type() == PanElevationAutomation) {
 		Pannable* pannable = dynamic_cast<Pannable*>(this);
 		if (pannable) {

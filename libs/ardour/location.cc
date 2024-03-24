@@ -91,7 +91,7 @@ Location::Location (Session& s, timepos_t const & start, timepos_t const & end, 
 	set_position_time_domain (_session.time_domain());
 }
 
-Location::Location (const Location& other)
+Location::Location (const Location& other, bool no_emit)
 	: SessionHandleRef (other._session)
 	, _name (other._name)
 	, _start (other._start)
@@ -101,8 +101,13 @@ Location::Location (const Location& other)
 	, _cue (other._cue)
 	, _signals_suspended (0)
 {
-	/* copy is not locked even if original was */
-	assert (other._signals_suspended == 0);
+	if (no_emit) {
+		/* use for temp. copies (e.g. during Drag) */
+		suspend_signals ();
+	} else {
+		/* copy is not locked even if original was */
+		assert (other._signals_suspended == 0);
+	}
 
 	_locked = false;
 
@@ -180,6 +185,7 @@ Location::resume_signals ()
 	for (auto const& s : _postponed_signals) {
 		actually_emit_signal (s);
 	}
+	_postponed_signals.clear ();
 }
 
 void
@@ -262,6 +268,9 @@ Location::set_time_domain (TimeDomain domain)
 void
 Location::set_name (const std::string& str)
 {
+	if (_name == str) {
+		return;
+	}
 	_name = str;
 	emit_signal (Name); /* EMIT SIGNAL*/
 }
@@ -707,6 +716,9 @@ Location::set_state (const XMLNode& node, int version)
 	   may make the value of _start illegal.
 	*/
 
+	timepos_t old_start (_start);
+	timepos_t old_end (_end);
+
 	if (!node.get_property ("start", _start)) {
 		error << _("XML node for Location has no start information") << endmsg;
 		return -1;
@@ -760,7 +772,9 @@ Location::set_state (const XMLNode& node, int version)
 		_scene_change = SceneChange::factory (*scene_child, version);
 	}
 
-	emit_signal (StartEnd); /* EMIT SIGNAL */
+	if (old_start != _start || old_end != _end) {
+		emit_signal (StartEnd); /* EMIT SIGNAL */
+	}
 
 	assert (_start.is_positive() || _start.is_zero());
 	assert (_end.is_positive() || _end.is_zero());
@@ -1263,6 +1277,8 @@ Locations::set_state (const XMLNode& node, int version)
 	/* build up a new locations list in here */
 	LocationList new_locations;
 
+	bool emit_changed = false;
+
 	{
 		std::vector<Location::ChangeSuspender> lcs;
 		Glib::Threads::RWLock::WriterLock lm (_lock);
@@ -1299,6 +1315,7 @@ Locations::set_state (const XMLNode& node, int version)
 					loc = new Location (_session);
 					lcs.emplace_back (std::move (loc));
 					loc->set_state (**niter, version);
+					emit_changed = true;
 				}
 
 				bool add = true;
@@ -1359,6 +1376,7 @@ Locations::set_state (const XMLNode& node, int version)
 			if (!found) {
 				delete *i;
 				locations.erase (i);
+				emit_changed = true;
 			}
 
 			i = tmp;
@@ -1373,7 +1391,9 @@ Locations::set_state (const XMLNode& node, int version)
 		}
 	}
 
-	changed (); /* EMIT SIGNAL */
+	if (emit_changed) {
+		changed (); /* EMIT SIGNAL */
+	}
 
 	return 0;
 }
@@ -1597,8 +1617,18 @@ Locations::sorted_section_locations (vector<LocationPair>& locs) const
 Location*
 Locations::next_section (Location* l, timepos_t& start, timepos_t& end) const
 {
-	vector<LocationPair> locs;
-	sorted_section_locations (locs);
+	std::vector<Locations::LocationPair> locs;
+	return next_section_iter (l, start, end, locs);
+}
+
+Location*
+Locations::next_section_iter (Location* l, timepos_t& start, timepos_t& end, vector<LocationPair>& locs) const
+{
+	if (!l) {
+		/* build cache */
+		locs.clear ();
+		sorted_section_locations (locs);
+	}
 
 	if (locs.size () < 2) {
 		return NULL;
@@ -1783,7 +1813,7 @@ Locations::range_starts_at (timepos_t const & pos, timecnt_t const & slop, bool 
 }
 
 void
-Locations::ripple (timepos_t const & at, timecnt_t const & distance, bool include_locked, bool notify)
+Locations::ripple (timepos_t const & at, timecnt_t const & distance, bool include_locked)
 {
 	LocationList copy;
 
@@ -1792,12 +1822,14 @@ Locations::ripple (timepos_t const & at, timecnt_t const & distance, bool includ
 		copy = locations;
 	}
 
+	std::vector<Location::ChangeSuspender> lcs;
 	for (LocationList::iterator i = copy.begin(); i != copy.end(); ++i) {
 
 		if ( (*i)->is_session_range() || (*i)->is_auto_punch() || (*i)->is_auto_loop()  ) {
 			continue;
 		}
 
+		lcs.emplace_back (std::move (*i));
 		bool locked = (*i)->locked();
 
 		if (locked) {
@@ -1821,10 +1853,6 @@ Locations::ripple (timepos_t const & at, timecnt_t const & distance, bool includ
 		if (locked) {
 			(*i)->lock();
 		}
-	}
-
-	if (notify) {
-		changed(); /* EMIT SIGNAL */
 	}
 }
 
@@ -1924,7 +1952,7 @@ Locations::cut_copy_section (timepos_t const& start, timepos_t const& end, timep
 
 		} else if (op == CopyPasteSection) {
 			if (i->start() >= start && i->start() < end) {
-				Location* copy = new Location (*i);
+				Location* copy = new Location (*i, false);
 				pastebuf.push_back (copy);
 			}
 		}

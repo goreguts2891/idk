@@ -73,6 +73,7 @@
 #include "ardour/route.h"
 #include "ardour/send.h"
 #include "ardour/session.h"
+#include "ardour/surround_send.h"
 #include "ardour/types.h"
 #include "ardour/value_as_string.h"
 
@@ -1863,7 +1864,8 @@ ProcessorEntry::PluginInlineDisplay::update_height_alloc (uint32_t inline_height
 void
 ProcessorEntry::PluginInlineDisplay::display_frame (cairo_t* cr, double w, double h)
 {
-	Gtkmm2ext::rounded_rectangle (cr, .5, -1.5, w - 1, h + 1, 7);
+	Gtkmm2ext::rounded_rectangle (cr, 1.5, -0.5, w - 3, h - 1.0, 2.5);
+
 }
 
 ProcessorEntry::LuaPluginDisplay::LuaPluginDisplay (ProcessorEntry& e, std::shared_ptr<ARDOUR::LuaProc> p, uint32_t max_height)
@@ -1960,6 +1962,7 @@ ProcessorBox::ProcessorBox (ARDOUR::Session* sess, boost::function<PluginSelecto
 	no_processor_redisplay = false;
 
 	processor_scroller.set_policy (Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+	processor_scroller.set_name ("ProcessorScroller");
 	processor_scroller.add (processor_display);
 	pack_start (processor_scroller, true, true);
 
@@ -2254,7 +2257,7 @@ ProcessorBox::build_possible_aux_menu ()
 		return 0;
 	}
 
-	if (_route->is_monitor () || _route->is_foldbackbus () || _route->is_master ()) {
+	if (_route->is_main_bus ()) {
 		return 0;
 	}
 
@@ -2263,11 +2266,8 @@ ProcessorBox::build_possible_aux_menu ()
 	MenuList& items = menu->items();
 
 	for (RouteList::iterator r = rl->begin(); r != rl->end(); ++r) {
-		if ((*r)->is_master() || (*r)->is_monitor () || *r == _route) {
-			/* don't allow sending to master or monitor or to self */
-			continue;
-		}
-		if ((*r)->is_foldbackbus ()) {
+		if ((*r)->is_main_bus() || *r == _route) {
+			/* don't allow sending to master, monitor, folback, surround or to self */
 			continue;
 		}
 		if (_route->internal_send_for (*r)) {
@@ -2290,7 +2290,7 @@ ProcessorBox::build_possible_listener_menu ()
 		return 0;
 	}
 
-	if (_route->is_monitor () || _route->is_foldbackbus ()) {
+	if (_route->is_monitor () || _route->is_foldbackbus () || _route->is_surround_master ()) {
 		return 0;
 	}
 
@@ -2299,8 +2299,8 @@ ProcessorBox::build_possible_listener_menu ()
 	MenuList& items = menu->items();
 
 	for (RouteList::iterator r = rl->begin(); r != rl->end(); ++r) {
-		if ((*r)->is_master() || (*r)->is_monitor () || *r == _route) {
-			/* don't allow sending to master or monitor or to self */
+		if ((*r)->is_singleton () || *r == _route) {
+			/* don't allow sending to master or monitor, surround or to self */
 			continue;
 		}
 		if (!(*r)->is_foldbackbus ()) {
@@ -2326,7 +2326,7 @@ ProcessorBox::build_possible_remove_listener_menu ()
 		return 0;
 	}
 
-	if (_route->is_monitor () || _route->is_foldbackbus ()) {
+	if (_route->is_monitor () || _route->is_foldbackbus () || _route->is_surround_master ()) {
 		return 0;
 	}
 
@@ -2335,7 +2335,7 @@ ProcessorBox::build_possible_remove_listener_menu ()
 	MenuList& items = menu->items();
 
 	for (RouteList::iterator r = rl->begin(); r != rl->end(); ++r) {
-		if ((*r)->is_master() || (*r)->is_monitor () || *r == _route) {
+		if ((*r)->is_singleton() || *r == _route) {
 			/* don't allow sending to master or monitor or to self */
 			continue;
 		}
@@ -2415,8 +2415,9 @@ ProcessorBox::show_processor_menu (int arg)
 		}
 	}
 
-	ActionManager::get_action (X_("ProcessorMenu"), "newinsert")->set_sensitive (!_route->is_monitor () && !_route->is_foldbackbus ());
-	ActionManager::get_action (X_("ProcessorMenu"), "newsend")->set_sensitive (!_route->is_monitor () && !_route->is_foldbackbus ());
+	ActionManager::get_action (X_("ProcessorMenu"), "newplugin")->set_sensitive (!_route->is_surround_master ());
+	ActionManager::get_action (X_("ProcessorMenu"), "newinsert")->set_sensitive (!_route->is_monitor () && !_route->is_foldbackbus () && !_route->is_surround_master ());
+	ActionManager::get_action (X_("ProcessorMenu"), "newsend")->set_sensitive (!_route->is_monitor () && !_route->is_foldbackbus () && !_route->is_surround_master ());
 
 	ProcessorEntry* single_selection = 0;
 	if (processor_display.selection().size() == 1) {
@@ -2479,7 +2480,7 @@ ProcessorBox::show_processor_menu (int arg)
 
 	/* Sensitise actions as approprioate */
 
-	const bool sensitive = !processor_display.selection().empty() && ! stub_processor_selected () && !channelstrip_selected();
+	const bool sensitive = !processor_display.selection().empty() && ! stub_processor_selected () && !channelstrip_selected() && !surrsend_selected ();
 
 	paste_action->set_sensitive (!_p_selection.processors.empty());
 	cut_action->set_sensitive (sensitive && can_cut ());
@@ -2525,6 +2526,7 @@ ProcessorBox::show_processor_menu (int arg)
 			/* aux-send names are kept in sync with the target bus name */
 			&& !std::dynamic_pointer_cast<InternalSend> (single_selection->processor ())
 			&& !std::dynamic_pointer_cast<Amp> (single_selection->processor ())
+			&& !std::dynamic_pointer_cast<SurroundSend> (single_selection->processor ())
 			&& !std::dynamic_pointer_cast<UnknownProcessor> (single_selection->processor ()));
 
 	processor_menu->popup (3, arg);
@@ -3073,8 +3075,6 @@ ProcessorBox::maybe_add_processor_to_ui_list (std::weak_ptr<Processor> w)
 		if (!std::dynamic_pointer_cast<InternalReturn> (p)) {
 			have_ui = true;
 		}
-	} else if (std::dynamic_pointer_cast<TriggerBox> (p)) {
-		have_ui = true;
 	}
 #ifdef HAVE_BEATBOX
 	else if (std::dynamic_pointer_cast<BeatBox> (p)) {
@@ -3150,18 +3150,18 @@ ProcessorBox::add_processor_to_display (std::weak_ptr<Processor> p)
 
 	std::shared_ptr<Send> send = std::dynamic_pointer_cast<Send> (processor);
 	std::shared_ptr<PortInsert> ext = std::dynamic_pointer_cast<PortInsert> (processor);
-	std::shared_ptr<TriggerBox> tb = std::dynamic_pointer_cast<TriggerBox> (processor);
 #ifdef HAVE_BEATBOX
 	std::shared_ptr<BeatBox> bb = std::dynamic_pointer_cast<BeatBox> (processor);
 #endif
 	std::shared_ptr<UnknownProcessor> stub = std::dynamic_pointer_cast<UnknownProcessor> (processor);
+	std::shared_ptr<SurroundSend> sursend = std::dynamic_pointer_cast<SurroundSend> (processor);
 
 	//faders and meters are not deletable, copy/paste-able, so they shouldn't be selectable
 
 #ifdef HAVE_BEATBOX
-	if (!send && !plugin_insert && !ext && !stub && !bb && !tb) {
+	if (!send && !plugin_insert && !ext && !stub && !bb && !sursend) {
 #else
-	if (!send && !plugin_insert && !ext && !stub && !tb) {
+	if (!send && !plugin_insert && !ext && !stub && !sursend) {
 #endif
 		e->set_selectable(false);
 	}
@@ -3449,6 +3449,22 @@ ProcessorBox::stub_processor_selected () const
 }
 
 bool
+ProcessorBox::surrsend_selected () const
+{
+	vector<std::shared_ptr<Processor> > sel;
+
+	get_selected_processors (sel);
+
+	for (vector<std::shared_ptr<Processor> >::const_iterator i = sel.begin (); i != sel.end (); ++i) {
+		if (std::dynamic_pointer_cast<SurroundSend>((*i)) != 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool
 ProcessorBox::channelstrip_selected () const
 {
 	return false;
@@ -3682,6 +3698,7 @@ ProcessorBox::paste_processor_state (const XMLNodeList& nlist, std::shared_ptr<P
 			if (type->value() == "meter" ||
 			    type->value() == "main-outs" ||
 			    type->value() == "amp" ||
+			    type->value() == "sursend" ||
 			    type->value() == "intreturn") {
 				/* do not paste meter, main outs, amp or internal returns */
 				continue;
@@ -3933,8 +3950,7 @@ ProcessorBox::processor_can_be_edited (std::shared_ptr<Processor> processor)
 	if (std::dynamic_pointer_cast<Send> (processor) ||
 	    std::dynamic_pointer_cast<Return> (processor) ||
 	    std::dynamic_pointer_cast<PluginInsert> (processor) ||
-	    std::dynamic_pointer_cast<PortInsert> (processor) ||
-	    std::dynamic_pointer_cast<TriggerBox> (processor)
+	    std::dynamic_pointer_cast<PortInsert> (processor)
 #ifdef HAVE_BEATBOX
 	    || std::dynamic_pointer_cast<BeatBox> (processor)
 #endif
@@ -4458,20 +4474,6 @@ ProcessorBox::edit_aux_send (std::shared_ptr<Processor> processor)
 	return true;
 }
 
-bool
-ProcessorBox::edit_triggerbox (std::shared_ptr<Processor> processor)
-{
-	std::shared_ptr<TriggerBox> tb;
-
-	if ((tb = std::dynamic_pointer_cast<TriggerBox> (processor)) == 0) {
-		return false;
-	}
-
-	UIConfiguration::instance().set_show_triggers_inline (!UIConfiguration::instance().get_show_triggers_inline());
-
-	return true;
-}
-
 void
 ProcessorBox::edit_processor (std::shared_ptr<Processor> processor)
 {
@@ -4479,9 +4481,6 @@ ProcessorBox::edit_processor (std::shared_ptr<Processor> processor)
 		return;
 	}
 	if (edit_aux_send (processor)) {
-		return;
-	}
-	if (edit_triggerbox (processor)) {
 		return;
 	}
 	if (!ARDOUR_UI_UTILS::engine_is_running ()) {
@@ -4787,12 +4786,36 @@ ProcessorWindowProxy::session_handle()
 	/* we don't care */
 	return 0;
 }
+bool
+ProcessorWindowProxy::visible () const
+{
+	PluginUIWindow* puiw = dynamic_cast<PluginUIWindow*> (_window);
+	if (puiw && puiw->pluginui().is_external ()) {
+		return puiw->pluginui().is_external_visible ();
+	}
+	return WM::ProxyBase::visible ();
+}
+
+bool
+ProcessorWindowProxy::fully_visible () const
+{
+	PluginUIWindow* puiw = dynamic_cast<PluginUIWindow*> (_window);
+	if (puiw && puiw->pluginui().is_external ()) {
+		return puiw->pluginui().is_external_visible ();
+	}
+	return WM::ProxyBase::fully_visible ();
+}
 
 XMLNode&
 ProcessorWindowProxy::get_state () const
 {
+	PluginUIWindow* puiw = dynamic_cast<PluginUIWindow*> (_window);
+
 	XMLNode *node;
 	node = &ProxyBase::get_state();
+	if (puiw && puiw->pluginui().is_external ()) {
+		node->set_property (X_("visible"), puiw->pluginui().is_external_visible ());
+	}
 	node->set_property (X_("custom-ui"), is_custom);
 	return *node;
 }
@@ -4844,7 +4867,7 @@ ProcessorWindowProxy::get (bool create)
 
 		if (_window) {
 			setup ();
-			_window->show_all ();
+			_window->show_all (); // XXX
 		}
 	}
 	return _window;

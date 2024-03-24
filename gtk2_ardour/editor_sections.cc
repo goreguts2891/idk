@@ -96,14 +96,14 @@ EditorSections::set_session (Session* s)
 	SessionHandlePtr::set_session (s);
 
 	if (_session) {
-		_session->locations ()->added.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
-		_session->locations ()->removed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
-		_session->locations ()->changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
+		_session->locations ()->added.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::location_changed, this, _1), gui_context ());
+		_session->locations ()->removed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::location_changed, this, _1), gui_context ());
+		_session->locations ()->changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::queue_redisplay, this), gui_context ());
 
-		Location::start_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
-		Location::end_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
-		Location::flags_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
-		Location::name_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::redisplay, this), gui_context ());
+		Location::start_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::location_changed, this, _1), gui_context ());
+		Location::end_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::location_changed, this, _1), gui_context ());
+		Location::flags_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::queue_redisplay, this), gui_context ());
+		Location::name_changed.connect (_session_connections, invalidator (*this), boost::bind (&EditorSections::location_changed, this, _1), gui_context ());
 	}
 
 	redisplay ();
@@ -116,6 +116,29 @@ EditorSections::select (ARDOUR::Location* l)
 	if (map_it != _location_row_map.end ()) {
 		_view.get_selection ()->select (*map_it->second);
 	}
+}
+
+void
+EditorSections::location_changed (ARDOUR::Location* l)
+{
+	if (l->is_section ()) {
+		queue_redisplay ();
+	}
+}
+
+void
+EditorSections::queue_redisplay ()
+{
+	if (!_redisplay_connection.connected ()) {
+		_redisplay_connection = Glib::signal_idle().connect (sigc::mem_fun (*this, &EditorSections::idle_redisplay), Glib::PRIORITY_HIGH_IDLE+10);
+	}
+}
+
+bool
+EditorSections::idle_redisplay ()
+{
+	redisplay ();
+	return false;
 }
 
 void
@@ -134,12 +157,13 @@ EditorSections::redisplay ()
 
 	timepos_t start;
 	timepos_t end;
+	std::vector<Locations::LocationPair> locs;
 
 	Locations* loc = _session->locations ();
 	Location*  l   = NULL;
 
 	do {
-		l = loc->next_section (l, start, end);
+		l = loc->next_section_iter (l, start, end, locs);
 		if (l) {
 			TreeModel::Row newrow     = *(_model->append ());
 			newrow[_columns.name]     = l->name ();
@@ -214,9 +238,11 @@ EditorSections::update_time_selection ()
 
 	Locations* loc = _session->locations ();
 	Location*  l   = NULL;
+
+	std::vector<Locations::LocationPair> locs;
 	do {
 		timepos_t start, end;
-		l = loc->next_section (l, start, end);
+		l = loc->next_section_iter (l, start, end, locs);
 		if (l) {
 			if (start == selection.time.start_time () && end == selection.time.end_time ()) {
 				LocationRowMap::iterator map_it = _location_row_map.find (l);

@@ -44,6 +44,7 @@ tags
 .waf3-*
 .lock-waf*
 /build/
+/.cache
 /doc/html/
 /doc/latex/
 /doc/ardourapi.json.gz
@@ -58,6 +59,8 @@ tags
 /libs/ardour/libardour.pot
 /libs/gtkmm2ext/po/*.mo
 /libs/gtkmm2ext/libgtkmm2ext.pot
+/libs/tk/ytk/po/*.mo
+/libs/tk/ytk/*.pot
 /gtk2_ardour/appdata/po/*.mo
 /gtk2_ardour/appdata/*.pot
 /gtk2_ardour/ardour.appdata.xml.in

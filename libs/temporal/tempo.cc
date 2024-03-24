@@ -621,9 +621,9 @@ TempoPoint::quarters_at_superclock (superclock_t sc) const
 		int64_t remain = superbeats - (b * big_numerator);
 		int32_t t = PBD::muldiv_round (Temporal::ticks_per_beat, remain, big_numerator);
 
-		DEBUG_TRACE (DEBUG::TemporalMap, string_compose ("%8 => \nsc %1 delta %9 = %2 secs rem = %3 rem snotes %4 sbeats = %5 => %6 : %7\n", sc, whole_seconds, remainder, supernotes, superbeats, b , t, *this, sc_delta));
-
 		const Beats ret = _quarters + Beats (b, t);
+
+		DEBUG_TRACE (DEBUG::TemporalMap, string_compose ("%8 => \nsc %1 delta %9 = %2 secs rem = %3 rem snotes %4 sbeats = %5 => %6 : %7 + %10 = %11\n", sc, whole_seconds, remainder, supernotes, superbeats, b , t, *this, sc_delta, _quarters, ret));
 
 		/* positive superclock can never generate negative beats unless
 		 * it is too large. If that happens, handle it the same way as
@@ -1113,6 +1113,11 @@ TempoMap::paste (TempoMapCutBuffer const & cb, timepos_t const & position, bool 
 void
 TempoMap::shift (timepos_t const & at, timecnt_t const & by)
 {
+	if (at == std::numeric_limits<timepos_t>::min()) {
+		/* can't insert time at the front of the map: those entries are fixed */
+		return;
+	}
+
 	timecnt_t abs_by (by.abs());
 	superclock_t distance = abs_by.superclocks ();
 	superclock_t at_superclocks = abs_by.superclocks ();
@@ -1387,6 +1392,19 @@ TempoMap::set_tempo (Tempo const & t, timepos_t const & time)
 	}
 #endif
 
+	return *ret;
+}
+
+TempoPoint &
+TempoMap::set_tempo (Tempo const & t, timepos_t const & time, Beats const & beats)
+{
+	assert (!time.is_beats());
+	BBT_Time bbt;
+
+	TempoMetric metric (metric_at (beats, false));
+	bbt = metric.bbt_at (beats);
+	TempoPoint* tp = new TempoPoint (*this, t, time.superclocks(), beats, bbt);
+	TempoPoint* ret = add_tempo (tp);
 	return *ret;
 }
 
@@ -3545,138 +3563,6 @@ TempoMap::n_tempos () const
 	return _tempos.size();
 }
 
-void
-TempoMap::insert_time (timepos_t const & pos, timecnt_t const & duration)
-{
-	TEMPO_MAP_ASSERT (!_tempos.empty());
-	TEMPO_MAP_ASSERT (!_meters.empty());
-
-	if (pos == std::numeric_limits<timepos_t>::min()) {
-		/* can't insert time at the front of the map: those entries are fixed */
-		return;
-	}
-
-	Tempos::iterator     t (_tempos.begin());
-	Meters::iterator     m (_meters.begin());
-	MusicTimes::iterator b (_bartimes.begin());
-
-	TempoPoint current_tempo = *t;
-	MeterPoint current_meter = *m;
-	MusicTimePoint current_time_point (*this, 0, Beats(), BBT_Time(), current_tempo, current_meter);
-
-	if (_bartimes.size() > 0) {
-		current_time_point = *b;
-	}
-
-	superclock_t sc;
-	Beats beats;
-	BBT_Time bbt;
-
-	/* set these to true so that we set current_* on our first pass
-	 * through the while loop(s)
-	 */
-
-	bool moved_tempo = true;
-	bool moved_meter = true;
-	bool moved_bartime = true;
-
-	switch (duration.time_domain()) {
-	case AudioTime:
-		sc = pos.superclocks();
-
-		/* handle a common case quickly */
-
-		if ((_tempos.size() < 2 || sc > _tempos.back().sclock()) &&
-		    (_meters.size() < 2 || sc > _meters.back().sclock()) &&
-		    (_bartimes.size() < 2 || (_bartimes.empty() || sc > _bartimes.back().sclock()))) {
-
-			/* only one tempo, plus one meter and zero or
-			   one bartimes, or insertion point is after last
-			   item. nothing to do here.
-			*/
-
-			return;
-		}
-
-		/* advance fundamental iterators to correct position */
-
-		while (t != _tempos.end()   && t->sclock() < sc) ++t;
-		while (m != _meters.end()   && m->sclock() < sc) ++m;
-		while (b != _bartimes.end() && b->sclock() < sc) ++b;
-
-		while (t != _tempos.end() && m != _meters.end() && b != _bartimes.end()) {
-
-			if (moved_tempo && t != _tempos.end()) {
-				current_tempo = *t;
-				moved_tempo = false;
-			}
-			if (moved_meter && m != _meters.end()) {
-				current_meter = *m;
-				moved_meter = false;
-			}
-			if (moved_bartime && b != _bartimes.end()) {
-				current_time_point = *b;
-				moved_bartime = false;
-			}
-
-			/* for each of t, m and b:
-
-			   if the point is earlier than the other two,
-			   recompute the superclock, beat and bbt
-			   positions, and reset the point.
-			*/
-
-			if (t->sclock() < m->sclock() && t->sclock() < b->sclock()) {
-
-				sc = t->sclock() + duration.superclocks();
-				beats = current_tempo.quarters_at_superclock (sc);
-				/* round tempo to beats */
-				beats = beats.round_to_beat ();
-				sc = current_tempo.superclock_at (beats);
-				bbt = current_meter.bbt_at (beats);
-
-				t->set (sc, beats, bbt);
-				++t;
-				moved_tempo = true;
-			}
-
-			if (m->sclock() < t->sclock() && m->sclock() < b->sclock()) {
-
-				sc = m->sclock() + duration.superclocks();
-				beats = current_tempo.quarters_at_superclock (sc);
-				/* round meter to bars */
-				bbt = current_meter.bbt_at (beats);
-				beats = current_meter.quarters_at (current_meter.round_to_bar(bbt));
-				/* recompute */
-				sc = current_tempo.superclock_at (beats);
-
-				m->set (sc, beats, bbt);
-				++m;
-				moved_meter = true;
-			}
-
-			if (b->sclock() < t->sclock() && b->sclock() < m->sclock()) {
-
-				sc = b->sclock() + duration.superclocks();
-				beats = current_tempo.quarters_at_superclock (sc);
-				/* round bartime to beats */
-				beats = beats.round_to_beat();
-				sc = current_tempo.superclock_at (beats);
-				bbt = current_meter.bbt_at (beats);
-
-				m->set (sc, beats, bbt);
-				++m;
-				moved_meter = true;
-			}
-
-		}
-		break;
-
-	case BeatTime:
-		break;
-	}
-}
-
 bool
 TempoMap::remove_time (timepos_t const & pos, timecnt_t const & duration)
 {
@@ -4486,11 +4372,15 @@ TempoMap::parse_tempo_state_3x (const XMLNode& node, LegacyTempoState& lts)
 		}
 	}
 
-	/* position is the only data we extract from older XML */
-
 	if (!node.get_property ("frame", lts.sample)) {
 		error << _("Legacy tempo section XML does not have a \"frame\" node - map will be ignored") << endmsg;
 		cerr << _("Legacy tempo section XML does not have a \"frame\" node - map will be ignored") << endl;
+		return -1;
+	}
+
+	if (!node.get_property ("pulse", lts.pulses)) {
+		error << _("Legacy tempo section XML does not have a \"pulse\" node - map will be ignored") << endmsg;
+		cerr << _("Legacy tempo section XML does not have a \"pulse\" node - map will be ignored") << endl;
 		return -1;
 	}
 
@@ -4559,6 +4449,12 @@ TempoMap::parse_meter_state_3x (const XMLNode& node, LegacyMeterState& lms)
 
 	if (!node.get_property ("frame", lms.sample)) {
 		error << _("Legacy tempo section XML does not have a \"frame\" node - map will be ignored") << endmsg;
+		return -1;
+	}
+
+	if (!node.get_property ("pulse", lms.pulses)) {
+		error << _("Legacy meter section XML does not have a \"pulse\" node - map will be ignored") << endmsg;
+		cerr << _("Legacy meter section XML does not have a \"pulse\" node - map will be ignored") << endl;
 		return -1;
 	}
 
@@ -4640,7 +4536,7 @@ TempoMap::set_state_3x (const XMLNode& node)
 			Tempo t (lts.note_types_per_minute,
 			         lts.end_note_types_per_minute,
 			         lts.note_type);
-			TempoPoint* tp = new TempoPoint (*this, t, samples_to_superclock (0, TEMPORAL_SAMPLE_RATE), Beats(), BBT_Time());
+			TempoPoint* tp = new TempoPoint (*this, t, samples_to_superclock (0, TEMPORAL_SAMPLE_RATE), Beats::from_double (lts.pulses * 4.0), BBT_Time());
 
 			tp->set_continuing (lts.continuing);
 
@@ -4717,7 +4613,7 @@ TempoMap::set_state_3x (const XMLNode& node)
 			         lts.end_note_types_per_minute,
 			         lts.note_type);
 
-			set_tempo (t, timepos_t (lts.sample));
+			set_tempo (t, timepos_t (lts.sample), Beats::from_double (lts.pulses * 4.0));
 
 		} else if (child->name() == Meter::xml_node_name) {
 
@@ -4774,26 +4670,27 @@ TempoMap::set_state_3x (const XMLNode& node)
 		Tempos::iterator prev = _tempos.end();
 		for (Tempos::iterator i = _tempos.begin(); i != _tempos.end(); ++i) {
 			if (prev != _tempos.end()) {
-			MeterSection* ms;
-			MeterSection* prev_m;
-			TempoSection* ts;
-			TempoSection* prev_t;
-			if ((prev_m = dynamic_cast<MeterSection*>(*prev)) != 0 && (ms = dynamic_cast<MeterSection*>(*i)) != 0) {
-				if (prev_m->beat() == ms->beat()) {
-					error << string_compose (_("Multiple meter definitions found at %1"), prev_m->beat()) << endmsg;
-					return -1;
-				}
-			} else if ((prev_t = dynamic_cast<TempoSection*>(*prev)) != 0 && (ts = dynamic_cast<TempoSection*>(*i)) != 0) {
-				if (prev_t->pulse() == ts->pulse()) {
-					error << string_compose (_("Multiple tempo definitions found at %1"), prev_t->pulse()) << endmsg;
-					return -1;
+				MeterSection* ms;
+				MeterSection* prev_m;
+				TempoSection* ts;
+				TempoSection* prev_t;
+				if ((prev_m = dynamic_cast<MeterSection*>(*prev)) != 0 && (ms = dynamic_cast<MeterSection*>(*i)) != 0) {
+					if (prev_m->beat() == ms->beat()) {
+						error << string_compose (_("Multiple meter definitions found at %1"), prev_m->beat()) << endmsg;
+						return -1;
+					}
+				} else if ((prev_t = dynamic_cast<TempoSection*>(*prev)) != 0 && (ts = dynamic_cast<TempoSection*>(*i)) != 0) {
+					if (prev_t->pulse() == ts->pulse()) {
+						error << string_compose (_("Multiple tempo definitions found at %1"), prev_t->pulse()) << endmsg;
+						return -1;
+					}
 				}
 			}
+			prev = i;
 		}
-		prev = i;
 	}
 #endif
-
+	reset_starting_at (0);
 	return 0;
 }
 

@@ -168,9 +168,11 @@ DummyAudioBackend::available_buffer_sizes (const std::string&) const
 	bs.push_back (32);
 	bs.push_back (64);
 	bs.push_back (128);
+	bs.push_back (131);
 	bs.push_back (256);
 	bs.push_back (512);
 	bs.push_back (1024);
+	bs.push_back (1031);
 	bs.push_back (2048);
 	bs.push_back (4096);
 	bs.push_back (8192);
@@ -1029,12 +1031,7 @@ DummyAudioBackend::main_process_thread ()
 			if (!_port_connection_queue.empty ()) {
 				connections_changed = true;
 			}
-			while (!_port_connection_queue.empty ()) {
-				PortConnectData *c = _port_connection_queue.back ();
-				manager.connect_callback (c->a, c->b, c->c);
-				_port_connection_queue.pop_back ();
-				delete c;
-			}
+			process_connection_queue_locked (manager);
 			pthread_mutex_unlock (&_port_callback_mutex);
 		}
 		if (ports_changed) {

@@ -104,6 +104,7 @@ public:
 	bool is_track () const;
 	bool is_master () const;
 	bool is_foldbackbus () const;
+	bool is_singleton () const;
 	bool is_audio_track () const;
 	bool is_midi_track () const;
 	bool has_audio_outputs () const;
@@ -209,6 +210,7 @@ protected:
 	Gtk::CheckMenuItem* post_fader_mute_check;
 	Gtk::CheckMenuItem* listen_mute_check;
 	Gtk::CheckMenuItem* main_mute_check;
+	Gtk::CheckMenuItem* surround_mute_check;
 	Gtk::CheckMenuItem* solo_safe_check;
 	Gtk::CheckMenuItem* solo_isolated_check;
 	int                 set_color_from_route ();

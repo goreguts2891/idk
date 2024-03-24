@@ -134,15 +134,25 @@ mkdir -p $ALIBDIR/panners
 mkdir -p $ALIBDIR/vamp
 mkdir -p $ALIBDIR/suil
 
+# cp $PREFIX/lib/ardour*/*-*.dll $DESTDIR/bin/
 cp build/libs/gtkmm2ext/gtkmm2ext-*.dll $DESTDIR/bin/
 cp build/libs/midi++2/midipp-*.dll $DESTDIR/bin/
 cp build/libs/evoral/evoral-*.dll $DESTDIR/bin/
 cp build/libs/ardour/ardour-*.dll $DESTDIR/bin/
 cp build/libs/temporal/temporal-*.dll $DESTDIR/bin/
+cp build/libs/aaf/aaf-*.dll $DESTDIR/bin/
 cp build/libs/canvas/canvas-*.dll $DESTDIR/bin/
 cp build/libs/widgets/widgets-*.dll $DESTDIR/bin/
 cp build/libs/waveview/waveview-*.dll $DESTDIR/bin/
 cp build/libs/pbd/pbd-*.dll $DESTDIR/bin/
+cp build/libs/tk/ztk/ztk-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ydk/ydk-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ytk/ytk-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ytkmm/ytkmm-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ydkmm/ydkmm-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ztkmm/ztkmm-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/ydk-pixbuf/ydk-pixbuf-*.dll $DESTDIR/bin/ || true
+cp build/libs/tk/suil/suil-*.dll $DESTDIR/bin/ || true
 cp build/libs/ctrl-interface/midi_surface/ardour*.dll $DESTDIR/bin/
 cp build/libs/ctrl-interface/control_protocol/ardour*.dll $DESTDIR/bin/
 cp build/libs/ptformat/ptformat-*.dll $DESTDIR/bin/
@@ -178,7 +188,12 @@ cp `find build/libs/panners/ -iname "*.dll"` $ALIBDIR/panners/
 cp -r build/libs/LV2 $ALIBDIR/
 cp -r build/libs/vamp-plugins/*ardourvampplugins*.dll $ALIBDIR/vamp/libardourvampplugins.dll
 cp -r build/libs/vamp-pyin/*ardourvamppyin*.dll $ALIBDIR/vamp/libardourvamppyin.dll
-cp $PREFIX/lib/suil-*/*.dll $ALIBDIR/suil/ || true
+
+if test -d build/libs/tk/suil/; then
+	cp build/libs/tk/suil/suil_win_in_gtk2.dll $ALIBDIR/suil/
+else
+	cp $PREFIX/lib/suil-*/*.dll $ALIBDIR/suil/ || true
+fi
 
 # lv2 core, classifications
 for file in $PREFIX/lib/lv2/*.lv2; do
@@ -246,10 +261,6 @@ if test -z "$NOVIDEOTOOLS"; then
 fi
 
 ################################################################################
-### include static gdb - re-zipped binaries from
-### http://sourceforge.net/projects/mingw/files/MinGW/Extension/gdb/gdb-7.6.1-1/gdb-7.6.1-1-mingw32-bin.tar.lzma
-### http://sourceforge.net/projects/mingw-w64/files/Toolchains%20targetting%20Win64/Personal%20Builds/mingw-builds/4.9.1/threads-win32/sjlj/x86_64-4.9.1-release-win32-sjlj-rt_v3-rev1.7z
-
 BUILDTYPE=""
 VERSIONINFO="Optimized Version."
 
@@ -271,16 +282,18 @@ fi
 OUTFILE="${TMPDIR}/${PRODUCT_NAME}-${ARDOURVERSION}${BUILDTYPE}-${WARCH}-Setup.exe"
 
 if test -n "$PACKAGE_GDB"; then
-	download gdb-static-win3264.tar.xz http://robin.linuxaudio.org/gdb-static-win3264.tar.xz
+	# re-packaged from https://packages.msys2.org/package/mingw-w64-x86_64-gdb
+	download gdb12-win64.tar.xz http://ardour.org/files/gdb/gdb12-win64.tar.xz
 	cd ${SRCCACHE}
-	tar xf gdb-static-win3264.tar.xz
+	tar xf gdb12-win64.tar.xz
 	cd - > /dev/null
 
 	echo " === Creating debug.bat"
-	cp -r ${SRCCACHE}/gdb_$WARCH $DESTDIR/gdb
+	cp -r ${SRCCACHE}/gdb12 $DESTDIR/gdb12
 	cat > $DESTDIR/debug.bat << EOF
+set PYTHONPATH=%~dp0\gdb12\python3.10
 cd bin
-START ..\\gdb\\bin\\gdb.exe -iex "set logging overwrite on" -iex "set height 0" -iex "set logging on %UserProfile%\\${PRODUCT_NAME}-debug.log" -iex "target exec ${PRODUCT_EXE}" -iex "run"
+..\\gdb12\\gdb.exe -ex "set logging overwrite on" -ex "set height 0" -ex "set logging file %UserProfile%\\${PRODUCT_NAME}-debug.log" -ex "set logging enabled on" -ex "target exec ${PRODUCT_EXE}" -ex "run"
 EOF
 fi
 
@@ -375,7 +388,7 @@ if test -n "$MIXBUS"; then
 		unzip -q -o -d "$DESTDIR/share/${LOWERCASE_DIRNAME}/media/" "${SRCCACHE}/MixbusBundledMedia.zip"
 	fi
 else
-        echo "Fetching Ardour bundled media"
+	echo "Fetching Ardour bundled media"
 	curl -s -S --fail -#  \
 		-z "${SRCCACHE}/ArdourBundledMedia.zip" \
 		-o "${SRCCACHE}/ArdourBundledMedia.zip" \
@@ -418,6 +431,11 @@ fi
 if test -n "$QUICKZIP" ; then
 	cat > $NSISFILE << EOF
 SetCompressor zlib
+EOF
+elif test -n "$PACKAGE_GDB"; then
+	# debug version is > 2.2 GB and causes issues with SOLID lzma
+	cat > $NSISFILE << EOF
+SetCompressor lzma
 EOF
 else
 	cat > $NSISFILE << EOF
@@ -485,7 +503,7 @@ Section "${PROGRAM_NAME}${PROGRAM_VERSION} (required)" SecMainProg
   File /r lib
   File /r share
   File /nonfatal debug.bat
-  File /nonfatal /r gdb
+  File /nonfatal /r gdb12
   WriteRegStr HKLM "Software\\${PROGRAM_KEY}\\v${major_version}\\$WARCH" "Install_Dir" "\$INSTDIR"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${PRODUCT_ID}-${WARCH}" "DisplayName" "${PROGRAM_NAME}${PROGRAM_VERSION}"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\${PRODUCT_ID}-${WARCH}" "UninstallString" '"\$INSTDIR\\uninstall.exe"'
@@ -604,7 +622,7 @@ Section "Uninstall"
   RMDir /r "\$INSTDIR\\bin"
   RMDir /r "\$INSTDIR\\lib"
   RMDir /r "\$INSTDIR\\share"
-  RMDir /r "\$INSTDIR\\gdb"
+  RMDir /r "\$INSTDIR\\gdb12"
   RMDir /r "\$INSTDIR\\video"
   Delete "\$INSTDIR\\debug.bat"
   Delete "\$INSTDIR\\uninstall.exe"

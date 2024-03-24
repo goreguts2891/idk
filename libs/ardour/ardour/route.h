@@ -97,6 +97,8 @@ class SoloIsolateControl;
 class PhaseControl;
 class MonitorControl;
 class TriggerBox;
+class SurroundReturn;
+class SurroundSend;
 
 class LIBARDOUR_API Route : public Stripable,
                             public GraphNode,
@@ -141,6 +143,8 @@ public:
 	static void set_name_in_state (XMLNode &, const std::string &);
 
 	std::shared_ptr<MonitorControl> monitoring_control() const { return _monitoring_control; }
+	std::shared_ptr<SurroundSend> surround_send() const { return _surround_send; }
+	std::shared_ptr<SurroundReturn> surround_return() const { return _surround_return; }
 
 	MonitorState monitoring_state () const;
 	virtual MonitorState get_input_monitoring_state (bool recording, bool talkback) const { return MonitoringSilence; }
@@ -183,7 +187,7 @@ public:
 	void push_solo_upstream (int32_t delta);
 	void push_solo_isolate_upstream (int32_t delta);
 	bool can_solo () const {
-		return !(is_master() || is_monitor() || is_auditioner() || is_foldbackbus());
+		return !(is_singleton() || is_auditioner() || is_foldbackbus());
 	}
 	bool is_safe () const {
 		return _solo_safe_control->get_value();
@@ -192,6 +196,7 @@ public:
 		return can_solo() || is_foldbackbus ();
 	}
 	void enable_monitor_send ();
+	void enable_surround_send ();
 
 	void set_denormal_protection (bool yn);
 	bool denormal_protection() const;
@@ -260,7 +265,11 @@ public:
 
 	std::shared_ptr<AutomationControl> automation_control_recurse (PBD::ID const & id) const;
 
-	 void automatables (PBD::ControllableSet&) const;
+	void automatables (PBD::ControllableSet&) const;
+
+	void queue_surround_processors_changed () {
+		_pending_surround_send.store (1);
+	}
 
 	/* special processors */
 
@@ -433,6 +442,7 @@ public:
 	int add_aux_send (std::shared_ptr<Route>, std::shared_ptr<Processor>);
 	int add_foldback_send (std::shared_ptr<Route>, bool post_fader);
 	void remove_monitor_send ();
+	void remove_surround_send ();
 
 	/**
 	 * return true if this route feeds the first argument directly, via
@@ -540,49 +550,8 @@ public:
 	uint32_t eq_band_cnt () const;
 	std::string eq_band_name (uint32_t) const;
 
-	std::shared_ptr<AutomationControl> eq_enable_controllable () const;
-	std::shared_ptr<AutomationControl> eq_gain_controllable (uint32_t band) const;
-	std::shared_ptr<AutomationControl> eq_freq_controllable (uint32_t band) const;
-	std::shared_ptr<AutomationControl> eq_q_controllable (uint32_t band) const;
-	std::shared_ptr<AutomationControl> eq_shape_controllable (uint32_t band) const;
-
-	std::shared_ptr<AutomationControl> filter_freq_controllable (bool hpf) const;
-	std::shared_ptr<AutomationControl> filter_slope_controllable (bool) const;
-	std::shared_ptr<AutomationControl> filter_enable_controllable (bool) const;
-
-	std::shared_ptr<AutomationControl> tape_drive_controllable () const;
-	std::shared_ptr<AutomationControl> tape_drive_mode_controllable () const;
-	std::shared_ptr<ReadOnlyControl>   tape_drive_mtr_controllable () const;
-
-	std::shared_ptr<AutomationControl> comp_enable_controllable () const;
-	std::shared_ptr<AutomationControl> comp_threshold_controllable () const;
-	std::shared_ptr<AutomationControl> comp_speed_controllable () const;
-	std::shared_ptr<AutomationControl> comp_mode_controllable () const;
-	std::shared_ptr<AutomationControl> comp_makeup_controllable () const;
-	std::shared_ptr<AutomationControl> comp_ratio_controllable () const;
-	std::shared_ptr<AutomationControl> comp_attack_controllable () const;
-	std::shared_ptr<AutomationControl> comp_release_controllable () const;
-	std::shared_ptr<AutomationControl> comp_key_filter_freq_controllable () const;
-	std::shared_ptr<AutomationControl> comp_lookahead_controllable () const;
-	std::shared_ptr<ReadOnlyControl>   comp_meter_controllable () const;
-	std::shared_ptr<ReadOnlyControl>   comp_redux_controllable () const;
-
-	std::shared_ptr<AutomationControl> gate_enable_controllable () const;
-	std::shared_ptr<AutomationControl> gate_mode_controllable () const;
-	std::shared_ptr<AutomationControl> gate_ratio_controllable () const;
-	std::shared_ptr<AutomationControl> gate_knee_controllable () const;
-	std::shared_ptr<AutomationControl> gate_threshold_controllable () const;
-	std::shared_ptr<AutomationControl> gate_depth_controllable () const;
-	std::shared_ptr<AutomationControl> gate_hysteresis_controllable () const;
-	std::shared_ptr<AutomationControl> gate_hold_controllable () const;
-	std::shared_ptr<AutomationControl> gate_attack_controllable () const;
-	std::shared_ptr<AutomationControl> gate_release_controllable () const;
-	std::shared_ptr<AutomationControl> gate_key_listen_controllable () const;
-	std::shared_ptr<AutomationControl> gate_key_filter_enable_controllable () const;
-	std::shared_ptr<AutomationControl> gate_key_filter_freq_controllable () const;
-	std::shared_ptr<AutomationControl> gate_lookahead_controllable () const;
-	std::shared_ptr<ReadOnlyControl>   gate_meter_controllable () const;
-	std::shared_ptr<ReadOnlyControl>   gate_redux_controllable () const;
+	std::shared_ptr<AutomationControl> mapped_control (enum WellKnownCtrl, uint32_t band = 0) const;
+	std::shared_ptr<ReadOnlyControl>   mapped_output (enum WellKnownData) const;
 
 	std::shared_ptr<AutomationControl> send_level_controllable (uint32_t n) const;
 	std::shared_ptr<AutomationControl> send_enable_controllable (uint32_t n) const;
@@ -592,12 +561,6 @@ public:
 	std::string send_name (uint32_t n) const;
 
 	std::shared_ptr<AutomationControl> master_send_enable_controllable () const;
-
-	std::shared_ptr<ReadOnlyControl> master_correlation_mtr_controllable (bool) const;
-
-	std::shared_ptr<AutomationControl> master_limiter_enable_controllable () const;
-	std::shared_ptr<ReadOnlyControl> master_limiter_mtr_controllable () const;
-	std::shared_ptr<ReadOnlyControl> master_k_mtr_controllable () const;
 
 	void protect_automation ();
 
@@ -669,6 +632,8 @@ protected:
 	std::shared_ptr<BeatBox>       _beatbox;
 #endif
 	std::shared_ptr<MonitorControl>   _monitoring_control;
+	std::shared_ptr<SurroundSend>     _surround_send;
+	std::shared_ptr<SurroundReturn>   _surround_return;
 
 	DiskIOPoint _disk_io_point;
 
@@ -676,13 +641,15 @@ protected:
 		EmitNone = 0x00,
 		EmitMeterChanged = 0x01,
 		EmitMeterVisibilityChange = 0x02,
-		EmitRtProcessorChange = 0x04
+		EmitRtProcessorChange = 0x04,
+		EmitSendReturnChange = 0x08
 	};
 
-	ProcessorList     _pending_processor_order;
-	std::atomic<int> _pending_process_reorder; // atomic
-	std::atomic<int> _pending_listen_change; // atomic
-	std::atomic<int> _pending_signals; // atomic
+	ProcessorList    _pending_processor_order;
+	std::atomic<int> _pending_process_reorder;
+	std::atomic<int> _pending_listen_change;
+	std::atomic<int> _pending_surround_send;
+	std::atomic<int> _pending_signals;
 
 	MeterPoint     _meter_point;
 	MeterPoint     _pending_meter_point;
@@ -825,6 +792,11 @@ private:
 	bool    _initial_io_setup;
 	bool    _in_sidechain_setup;
 	gain_t  _monitor_gain;
+
+	void add_well_known_ctrl (WellKnownCtrl, std::shared_ptr<PluginInsert>, int param);
+	void add_well_known_ctrl (WellKnownCtrl);
+
+	std::map<WellKnownCtrl, std::vector<std::weak_ptr<AutomationControl>>> _well_known_map;
 
 	/** true if we've made a note of a custom meter position in these variables */
 	bool _custom_meter_position_noted;

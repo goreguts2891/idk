@@ -45,6 +45,7 @@ class StartupFSM : public sigc::trackable
 
 	enum Result {
 		LoadSession,
+		LoadedSession,
 		ExitProgram,
 		QuitProgram,
 	};
@@ -72,6 +73,7 @@ class StartupFSM : public sigc::trackable
 	XMLNode              session_engine_hints;
 	bool                 session_is_new;
 	bool                 session_name_edited;
+	bool                 session_loaded;
 
 	ARDOUR::BusProfile bus_profile;
 
@@ -85,10 +87,7 @@ class StartupFSM : public sigc::trackable
 	void handle_path (std::string const & path);
 
 	bool complete() const { return _state == NotWaiting; }
-	void set_complete () {
-		app_quit_connection.disconnect ();
-		_state = NotWaiting;
-	}
+	void set_complete ();
 
   private:
 	bool new_user;
@@ -130,6 +129,7 @@ class StartupFSM : public sigc::trackable
 
 	sigc::connection current_dialog_connection;
 	sigc::connection app_quit_connection;
+	sigc::connection hide_quit_connection;
 
 	sigc::signal1<void,Result> _signal_response;
 

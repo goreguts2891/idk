@@ -73,7 +73,7 @@ public:
 
 	Location (Session &);
 	Location (Session &, Temporal::timepos_t const &, Temporal::timepos_t const &, const std::string &, Flags bits = Flags(0), int32_t cue_id = 0);
-	Location (const Location& other);
+	Location (Location const& other, bool no_signal);
 	Location (Session &, const XMLNode&);
 	Location* operator= (const Location& other);
 
@@ -207,6 +207,7 @@ protected:
 	void resume_signals ();
 
 private:
+	Location (Location const&); // no copy c'tor
 	void set_mark (bool yn);
 	bool set_flag_internal (bool yn, Flags flag);
 
@@ -276,7 +277,7 @@ public:
 
 	void cut_copy_section (timepos_t const& start, timepos_t const& end, timepos_t const& to, SectionOperation const op);
 
-	void ripple (timepos_t const & at, timecnt_t const & distance, bool include_locked, bool notify);
+	void ripple (timepos_t const & at, timecnt_t const & distance, bool include_locked);
 
 	XMLNode& get_state () const;
 	int set_state (const XMLNode&, int version);
@@ -301,6 +302,7 @@ public:
 	timepos_t first_mark_after (timepos_t const &, bool include_special_ranges = false);
 
 	Location* next_section (Location*, timepos_t&, timepos_t&) const;
+	Location* next_section_iter (Location*, timepos_t&, timepos_t&, std::vector<LocationPair>& cache) const;
 	Location* section_at (timepos_t const&, timepos_t&, timepos_t&) const;
 
 	void marks_either_side (timepos_t const &, timepos_t &, timepos_t &) const;

@@ -207,9 +207,19 @@ setup_enum_writer ()
 	REGISTER_ENUM (MonitoringAutomation);
 	REGISTER_ENUM (BusSendLevel);
 	REGISTER_ENUM (BusSendEnable);
+	REGISTER_ENUM (SurroundSendLevel);
 	REGISTER_ENUM (InsertReturnLevel);
 	REGISTER_ENUM (MainOutVolume);
 	REGISTER_ENUM (MidiVelocityAutomation);
+	REGISTER_ENUM (PanSurroundX);
+	REGISTER_ENUM (PanSurroundY);
+	REGISTER_ENUM (PanSurroundZ);
+	REGISTER_ENUM (PanSurroundSize);
+	REGISTER_ENUM (PanSurroundSnap);
+	REGISTER_ENUM (BinauralRenderMode);
+	REGISTER_ENUM (PanSurroundElevationEnable);
+	REGISTER_ENUM (PanSurroundZones);
+	REGISTER_ENUM (PanSurroundRamp);
 	REGISTER (_AutomationType);
 
 	REGISTER_ENUM (Off);
@@ -727,6 +737,7 @@ setup_enum_writer ()
 	REGISTER_CLASS_ENUM (MuteMaster, PostFader);
 	REGISTER_CLASS_ENUM (MuteMaster, Listen);
 	REGISTER_CLASS_ENUM (MuteMaster, Main);
+	REGISTER_CLASS_ENUM (MuteMaster, SurroundSend);
 	REGISTER_BITS (_MuteMaster_MutePoint);
 
 	REGISTER_CLASS_ENUM (IO, Input);
@@ -807,6 +818,7 @@ setup_enum_writer ()
 	REGISTER_CLASS_ENUM (PresentationInfo, OrderSet);
 	REGISTER_CLASS_ENUM (PresentationInfo, FoldbackBus);
 	REGISTER_CLASS_ENUM (PresentationInfo, TriggerTrack);
+	REGISTER_CLASS_ENUM (PresentationInfo, SurroundMaster);
 #ifdef MIXBUS
 	REGISTER_CLASS_ENUM (PresentationInfo, MixbusEditorHidden);
 #endif

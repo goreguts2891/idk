@@ -1173,6 +1173,7 @@ VST3PI::VST3PI (std::shared_ptr<ARDOUR::VST3PluginModule> m, std::string unique_
 	, _block_rpc (0)
 	, _rpc_queue (RouteProcessorChange::NoProcessorChange, false)
 	, _no_kMono (false)
+	, _restart_component_is_synced (false)
 {
 	using namespace std;
 	IPluginFactory* factory = m->factory ();
@@ -1194,6 +1195,13 @@ VST3PI::VST3PI (std::shared_ptr<ARDOUR::VST3PluginModule> m, std::string unique_
 			_no_kMono = true;
 		}
 	}
+
+#if !(defined PLATFORM_WINDOWS || defined __APPLE__) /* Linux only */
+	_restart_component_is_synced = m->has_symbol ("yabridge_version");
+	if (_restart_component_is_synced) {
+		DEBUG_TRACE (DEBUG::VST3Config, "VST3PI detected yabridge\n");
+	}
+#endif
 
 #ifndef NDEBUG
 	if (DEBUG_ENABLED (DEBUG::VST3Config)) {
@@ -1505,7 +1513,7 @@ VST3PI::restartComponent (int32 flags)
 
 	if (flags & Vst::kReloadComponent) {
 		Glib::Threads::Mutex::Lock pl (_process_lock, Glib::Threads::NOT_LOCK);
-		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state) {
+		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state && !_restart_component_is_synced) {
 			pl.acquire ();
 		} else {
 			assert (0); // a plugin should not call this while processing
@@ -1523,7 +1531,7 @@ VST3PI::restartComponent (int32 flags)
 	}
 	if (flags & Vst::kParamValuesChanged) {
 		Glib::Threads::Mutex::Lock pl (_process_lock, Glib::Threads::NOT_LOCK);
-		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state) {
+		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state && !_restart_component_is_synced) {
 			pl.acquire ();
 		}
 		update_shadow_data ();
@@ -1538,7 +1546,7 @@ VST3PI::restartComponent (int32 flags)
 		 * changes are automatically picked up.
 		 */
 		Glib::Threads::Mutex::Lock pl (_process_lock, Glib::Threads::NOT_LOCK);
-		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state) {
+		if (!AudioEngine::instance ()->in_process_thread () && !_is_loading_state && !_restart_component_is_synced) {
 			/* Some plugins (e.g BlendEQ) call this from the process,
 			 * IPlugProcessor::ProcessBuffers. In that case taking the
 			 * _process_lock would deadlock.
@@ -2641,7 +2649,7 @@ VST3PI::stripable_property_changed (PBD::PropertyChange const&)
 
 	std::string ns;
 	int order_key;
-	if (s->is_master ()) {
+	if (s->is_master () || s->is_surround_master ()) {
 		ns = _("Master");
 		order_key = 2;
 	} else if (s->is_monitor ()) {
@@ -2807,7 +2815,7 @@ VST3PI::getContextInfoValue (int32& value, FIDString id)
 	if (0 == strcmp (id, ContextInfo::kIndexMode)) {
 		value = ContextInfo::kFlatIndex;
 	} else if (0 == strcmp (id, ContextInfo::kType)) {
-		if (s->is_master ()) {
+		if (s->is_singleton ()) {
 			value = ContextInfo::kOut;
 		} else if (s->presentation_info ().flags () & PresentationInfo::AudioTrack) {
 			value = ContextInfo::kTrack;
@@ -2817,7 +2825,7 @@ VST3PI::getContextInfoValue (int32& value, FIDString id)
 			value = ContextInfo::kBus;
 		}
 	} else if (0 == strcmp (id, ContextInfo::kMain)) {
-		value = s->is_master () ? 1 : 0;
+		value = s->is_singleton () ? 1 : 0;
 	} else if (0 == strcmp (id, ContextInfo::kIndex)) {
 		value = s->presentation_info ().order ();
 	} else if (0 == strcmp (id, ContextInfo::kColor)) {

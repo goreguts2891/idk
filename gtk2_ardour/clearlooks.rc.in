@@ -282,7 +282,7 @@ style "inspector_processor_list" = "processor_list"
 
 style "time_info_box"
 {
-        bg[NORMAL] = { 0.00, 0.00, 0.00 }
+        bg[NORMAL] = @darkest
 }
 
 style "status_bar_box"
@@ -897,7 +897,7 @@ style "track_name_editor" = "medium_text"
 
 style "track_separator"
 {
-	bg[NORMAL] = lighter(@background)
+	bg[NORMAL] = darker(@background)
 }
 
 # Plugin Editors
@@ -966,6 +966,12 @@ style "processor_list" = "very_small_text"
 	bg[NORMAL] = @bases
 	bg[ACTIVE] = shade (1.8, @fg_selected)
 	fg[ACTIVE] = @bases
+}
+style "processor_scroller"
+{
+	bg[ACTIVE] = @bases
+	ythickness = 1
+	xthickness = 0
 }
 
 # MixerPanZone:
@@ -1051,6 +1057,9 @@ style "tooltip" = "medium_text"
 {
 	fg[NORMAL] = @fg_tooltip
 	bg[NORMAL] = @bg_tooltip
+	bg[SELECTED] = @bg_tooltip
+	xthickness = 4
+	ythickness = 4
 }
 
 style "default_toggle_button"
@@ -1254,6 +1263,7 @@ widget "*LocationEditRemoveButton*" style:highest "location_row_button"
 widget "*ChannelCountSelector" style:highest "medium_bold_entry"
 widget "*RegionListWholeFile" style:highest "treeview_parent_node"
 widget "*ProcessorList*" style:highest "processor_list"
+widget "*ProcessorScroller*" style:highest "processor_scroller"
 widget "*PortMatrixLabel*" style:highest "small_text"
 widget "*MainMenuBar" style:highest "status_bar_box"
 widget "*midi device" style:highest "midi_device"
