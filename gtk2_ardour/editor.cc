@@ -5960,99 +5960,6 @@ Editor::use_own_window (bool and_fill_it)
 }
 
 void
-Editor::start_track_drag (TimeAxisView& tav, int y, Gtk::Widget& w, bool can_change_cursor)
-{
-	track_drag = new TrackDrag (dynamic_cast<RouteTimeAxisView*> (&tav), *_session);
-	DEBUG_TRACE (DEBUG::TrackDrag, string_compose ("start track drag with %1\n", track_drag));
-
-	int xo, yo;
-	w.translate_coordinates (edit_controls_vbox, 0, y, xo, yo);
-
-	if (can_change_cursor) {
-		track_drag->drag_cursor = _cursors->move->gobj();
-		track_drag->predrag_cursor = gdk_window_get_cursor (edit_controls_vbox.get_window()->gobj());
-		gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->drag_cursor);
-		track_drag->have_predrag_cursor = true;
-	}
-
-	track_drag->bump_track = nullptr;
-	track_drag->previous = yo;
-	track_drag->start = yo;
-}
-
-void
-Editor::mid_track_drag (GdkEventMotion* ev, Gtk::Widget& w)
-{
-	int xo, yo;
-	w.translate_coordinates (edit_controls_vbox, ev->x, ev->y, xo, yo);
-
-	if (track_drag->first_move) {
-
-		/* move threshold */
-
-		if (abs (yo - track_drag->previous) < (int) (4 * UIConfiguration::instance().get_ui_scale())) {
-			return;
-		}
-
-		if (!track_drag->track->selected()) {
-			set_selected_track (*track_drag->track, Selection::Set, false);
-		}
-
-		if (!track_drag->have_predrag_cursor) {
-			track_drag->drag_cursor = _cursors->move->gobj();
-			track_drag->predrag_cursor = gdk_window_get_cursor (edit_controls_vbox.get_window()->gobj());
-			gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->drag_cursor);
-			track_drag->have_predrag_cursor = true;
-		}
-
-		track_drag->first_move = false;
-	}
-
-	track_drag->current = yo;
-
-	if (track_drag->current > track_drag->previous) {
-		if (track_drag->direction != 1) {
-			track_drag->bump_track = nullptr;
-			track_drag->direction = 1;
-		}
-	} else if (track_drag->current < track_drag->previous) {
-		if (track_drag->direction != -1) {
-			track_drag->bump_track = nullptr;
-			track_drag->direction = -1;
-		}
-	}
-
-	if (track_drag->current == track_drag->previous) {
-		return;
-	}
-
-	redisplay_track_views ();
-	track_drag->previous = yo;
-}
-
-void
-Editor::end_track_drag ()
-{
-	if (!track_drag) {
-		return;
-	}
-
-	if (track_drag->have_predrag_cursor) {
-		gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->predrag_cursor);
-	}
-
-	DEBUG_TRACE (DEBUG::TrackDrag, string_compose ("ending track drag with %1\n", track_drag));
-	delete track_drag;
-	track_drag = nullptr;
-}
-
-bool
-Editor::track_dragging() const
-{
-	return (bool) track_drag;
-}
-
-void
 Editor::snap_to_internal (timepos_t& start, Temporal::RoundMode direction, SnapPref pref, bool ensure_snap) const
 {
 	UIConfiguration const& uic (UIConfiguration::instance ());
@@ -6143,21 +6050,21 @@ Editor::upper_left() const
 }
 
 void
-Editor::start_track_drag (TimeAxisView& tav, int y, Gtk::Widget& w)
+Editor::start_track_drag (TimeAxisView& tav, int y, Gtk::Widget& w, bool can_change_cursor)
 {
 	track_drag = new TrackDrag (dynamic_cast<RouteTimeAxisView*> (&tav), *_session);
 	DEBUG_TRACE (DEBUG::TrackDrag, string_compose ("start track drag with %1\n", track_drag));
-	PBD::stacktrace (std::cerr, 20);
-
-	track_drag->drag_cursor = _cursors->move->gobj();
-	track_drag->predrag_cursor = gdk_window_get_cursor (edit_controls_vbox.get_window()->gobj());
-
-	gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->drag_cursor);
 
 	int xo, yo;
 	w.translate_coordinates (edit_controls_vbox, 0, y, xo, yo);
 
-	track_drag->have_predrag_cursor = true;
+	if (can_change_cursor) {
+		track_drag->drag_cursor = _cursors->move->gobj();
+		track_drag->predrag_cursor = gdk_window_get_cursor (edit_controls_vbox.get_window()->gobj());
+		gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->drag_cursor);
+		track_drag->have_predrag_cursor = true;
+	}
+
 	track_drag->bump_track = nullptr;
 	track_drag->previous = yo;
 	track_drag->start = yo;
@@ -6180,6 +6087,14 @@ Editor::mid_track_drag (GdkEventMotion* ev, Gtk::Widget& w)
 		if (!track_drag->track->selected()) {
 			set_selected_track (*track_drag->track, Selection::Set, false);
 		}
+
+		if (!track_drag->have_predrag_cursor) {
+			track_drag->drag_cursor = _cursors->move->gobj();
+			track_drag->predrag_cursor = gdk_window_get_cursor (edit_controls_vbox.get_window()->gobj());
+			gdk_window_set_cursor (edit_controls_vbox.get_toplevel()->get_window()->gobj(), track_drag->drag_cursor);
+			track_drag->have_predrag_cursor = true;
+		}
+
 		track_drag->first_move = false;
 	}
 
